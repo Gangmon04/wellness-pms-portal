@@ -238,6 +238,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-top: 5px;
 }
 
 .pms-info-card {

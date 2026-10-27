@@ -1150,16 +1150,16 @@ export default function App() {
                           className="step-rail-check-icon"
                           width="16"
                           height="16"
-                          viewBox="0 0 14 14"
+                          viewBox="0 0 24 24"
                           fill="none"
                           xmlns="http://www.w3.org/2000/svg"
                           aria-hidden="true"
                         >
-                          <circle cx="7" cy="7" r="7" fill="#5DA84E" />
-                          <polyline
-                            points="3.5,7 6,9.5 10.5,4.5"
+                          <circle cx="12" cy="12" r="10" fill="#16A34A" />
+                          <path
+                            d="M8.5 12.5L11 15L15.5 9.5"
                             stroke="white"
-                            strokeWidth="1.6"
+                            strokeWidth="2.4"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           />
@@ -1777,13 +1777,14 @@ export default function App() {
             {step === 5 && (
               <div className="confirmation-wrap">
                 <div className="confirmation-header">
-                  <span className="confirmation-icon">
-                    <svg width="46" height="46" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                      <circle cx="7" cy="7" r="7" fill="#5DA84E" />
-                      <polyline
-                        points="3.5,7 6,9.5 10.5,4.5"
+                  <span className="confirmation-icon" aria-hidden="true">
+                    <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="23" cy="23" r="23" fill="#DCFCE7" />
+                      <circle cx="23" cy="23" r="17" fill="#16A34A" />
+                      <path
+                        d="M16 23.5L20.5 28L30 18.5"
                         stroke="white"
-                        strokeWidth="1.6"
+                        strokeWidth="2.8"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       />
