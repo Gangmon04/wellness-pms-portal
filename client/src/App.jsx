@@ -13,7 +13,50 @@ import DateField from './components/DateField'
 import MatchCard, { patientMatchRow } from './components/MatchCard'
 import PatientDetailModal from './components/PatientDetailModal'
 import { LoadingScreen, StatusScreen } from './components/StatusScreen'
+import { useToast } from './components/Toast'
+import { formatPmsErrorMessage } from './utils/errorUtils'
 import './App.css'
+import defaultPortalConfig from '../../portal-config.json'
+
+function getResolvedConfig() {
+  const cfg = JSON.parse(JSON.stringify(defaultPortalConfig))
+  if (typeof window !== 'undefined' && window.location.search) {
+    const p = new URLSearchParams(window.location.search)
+    // companyDetails
+    if (p.get('hideHeader') === 'true') cfg.companyDetails.showHeader = false
+    if (p.get('hideLogo') === 'true') cfg.companyDetails.showLogo = false
+    if (p.get('hideCompanyName') === 'true') cfg.companyDetails.showCompanyName = false
+    if (p.get('hideAddress') === 'true') cfg.companyDetails.showAddress = false
+    if (p.get('hideHours') === 'true') cfg.companyDetails.showClinicHours = false
+    if (p.get('hidePhone') === 'true') cfg.companyDetails.showPhone = false
+
+    // departments
+    if (p.get('hideDept') === 'true' || p.get('showDepartmentStep') === 'false') cfg.departments.showDepartmentStep = false
+    if (p.get('dept')) cfg.departments.defaultDepartment = p.get('dept')
+    if (p.get('hideDuration') === 'true') cfg.departments.showDuration = false
+    if (p.get('hideDoctorCount') === 'true') cfg.departments.showDoctorCount = false
+
+    // doctors
+    if (p.get('hideDoctors') === 'true' || p.get('allowDoctorSelection') === 'false') cfg.doctors.allowDoctorSelection = false
+    if (p.get('hideDoctorPhotos') === 'true') cfg.doctors.showDoctorPhotos = false
+    if (p.get('hideSpecialization') === 'true') cfg.doctors.showSpecialization = false
+
+    // patientForm
+    if (p.get('requireEmail') === 'true') cfg.patientForm.requireEmail = true
+    if (p.get('showEmail') === 'true') cfg.patientForm.showEmail = true
+    if (p.get('hideApptName') === 'true') cfg.patientForm.showAppointmentName = false
+    if (p.get('hideReason') === 'true') cfg.patientForm.showReasonForVisit = false
+    if (p.get('requireReason') === 'false') cfg.patientForm.requireReasonForVisit = false
+    if (p.get('hideNotes') === 'true') cfg.patientForm.showAdditionalNotes = false
+    if (p.get('hidePriority') === 'true') cfg.patientForm.showPriority = false
+
+    // theme
+    if (p.get('primaryColor')) cfg.theme.primaryColor = p.get('primaryColor')
+    if (p.get('borderRadius')) cfg.theme.borderRadius = p.get('borderRadius')
+  }
+  return cfg
+}
+const portalConfig = getResolvedConfig()
 
 const PRIORITIES = ['Routine', 'Urgent', 'ASAP', 'STAT']
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -265,7 +308,7 @@ function DoctorAvatar({ doctor, isSelected, initials }) {
   const imageSrc = doctor?.image || (doctor?.id
     ? `/server/pms_appointment_service/doctor-image?id=${doctor.id}${doctor.zuid ? `&zuid=${doctor.zuid}` : ''}`
     : null)
-  const hasImage = Boolean(imageSrc && !imgError)
+  const hasImage = Boolean(portalConfig.doctors?.showDoctorPhotos !== false && imageSrc && !imgError)
 
   return (
     <span className={`doctor-avatar ${isSelected ? 'is-selected' : ''}`}>
@@ -293,6 +336,8 @@ function getHospitalInitials(name = '') {
 }
 
 export default function App() {
+  const toast = useToast()
+
   // Live Data from PMS
   const [hospitalInfo, setHospitalInfo] = useState(null)
   const [hospitalLogoError, setHospitalLogoError] = useState(false)
@@ -309,8 +354,10 @@ export default function App() {
   const [loadingData, setLoadingData] = useState(true)
   const [fetchError, setFetchError] = useState('')
 
-  // Wizard Step
-  const [step, setStep] = useState(1)
+  const showDeptStep = portalConfig.departments?.showDepartmentStep !== false
+
+  // Wizard Step (starts at Step 2 if Department selection step is disabled)
+  const [step, setStep] = useState(showDeptStep ? 1 : 2)
 
   // Step 1: Selected Service from Services__s in PMS
   const [selectedServiceId, setSelectedServiceId] = useState(null)
@@ -362,6 +409,7 @@ export default function App() {
   const [first, setFirst] = useState('')
   const [last, setLast] = useState('')
   const [mobile, setMobile] = useState('')
+  const [email, setEmail] = useState('')
   const [matchedPatient, setMatchedPatient] = useState(null)
   const [detailPatient, setDetailPatient] = useState(null)
   const [searchingPatient, setSearchingPatient] = useState(false)
@@ -376,6 +424,19 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [bookingRef, setBookingRef] = useState(null)
+  const [confirmedAppt, setConfirmedAppt] = useState(null)
+
+  // Apply configurable brand theme & border radius from portal-config.json
+  useEffect(() => {
+    if (portalConfig.theme?.primaryColor) {
+      document.documentElement.style.setProperty('--brand', portalConfig.theme.primaryColor)
+      document.documentElement.style.setProperty('--brand-dark', portalConfig.theme.primaryColor)
+      document.documentElement.style.setProperty('--brand-tab', portalConfig.theme.primaryColor)
+    }
+    if (portalConfig.theme?.borderRadius) {
+      document.documentElement.style.setProperty('--portal-radius', portalConfig.theme.borderRadius)
+    }
+  }, [])
 
   // Load live Services, Doctors, and Schedule Configuration from PMS on mount or retry
   const loadData = () => {
@@ -397,14 +458,18 @@ export default function App() {
         if (sched) setScheduleConfig(sched)
 
         if (srvList?.length > 0) {
-          setSelectedServiceId(srvList[0].id)
+          const defDept = portalConfig.departments?.defaultDepartment
+          const matched = defDept
+            ? srvList.find((s) => String(s.id) === String(defDept) || (s.name && s.name.toLowerCase().includes(defDept.toLowerCase())))
+            : null
+          setSelectedServiceId(matched ? matched.id : srvList[0].id)
         }
         if (docList?.length > 0) {
           setSelectedDoctorId(docList[0].id)
         }
       })
       .catch((err) => {
-        console.error('Failed to load clinic data:', err)
+        console.error('Failed to load clinic data')
         setFetchError('Unable to load clinical departments right now. Please check your connection and try again.')
       })
       .finally(() => {
@@ -428,12 +493,13 @@ export default function App() {
     window.scrollTo(0, 0)
   }, [step])
 
-  // Prepopulate from URL params if provided (?first=Ganga&last=Elumalai&mobile=9876543210)
+  // Prepopulate from URL params if provided (?first=Ganga&last=Elumalai&mobile=9876543210&email=ganga@example.com)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('first')) setFirst(params.get('first'))
     if (params.get('last')) setLast(params.get('last'))
     if (params.get('mobile')) setMobile(params.get('mobile').replace(/\D/g, '').slice(-10))
+    if (params.get('email')) setEmail(params.get('email'))
   }, [])
 
   // Live Patient search in PMS when 10 digits are entered
@@ -447,6 +513,7 @@ export default function App() {
             setMatchedPatient(patient)
             if (!first && patient.firstName) setFirst(patient.firstName)
             if (!last && patient.lastName) setLast(patient.lastName)
+            if (!email && patient.email) setEmail(patient.email)
           } else {
             setMatchedPatient(null)
           }
@@ -740,17 +807,31 @@ export default function App() {
 
   const validate = () => {
     const errs = {}
-    if (step === 1 && !selectedServiceId) errs.service = 'Please choose a department to continue.'
+    if (step === 1 && showDeptStep && !selectedServiceId) errs.service = 'Please choose a department to continue.'
     if (step === 2) {
-      if (!selectedDoctorId) errs.doctor = 'Select a doctor.'
+      if (portalConfig.doctors?.allowDoctorSelection !== false && !selectedDoctorId) errs.doctor = 'Select a doctor.'
       if (!selectedDate) errs.slot = 'Select an appointment date.'
-      else if (!selectedSlot) errs.slot = 'Select a time slot.'
+      else if (!selectedSlot) errs.slot = 'Select time slot'
+      else if (bookedSlots.includes(selectedSlot)) errs.slot = 'This slot has already been booked. Please choose another available time.'
     }
     if (step === 3) {
       if (!first.trim()) errs.first = 'Enter the first name.'
       if (!last.trim()) errs.last = 'Enter the last name.'
       if (cleanMobile.length !== 10) errs.mobile = 'Enter a 10-digit mobile number.'
-      if (!complaint.trim()) errs.complaint = 'Describe the patient’s complaint.'
+      if (portalConfig.patientForm?.requireEmail) {
+        if (!email.trim()) {
+          errs.email = 'Enter an email address.'
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+          errs.email = 'Enter a valid email address.'
+        }
+      }
+      if (portalConfig.patientForm?.requireReasonForVisit !== false && !complaint.trim()) {
+        errs.complaint = 'Describe the patient’s complaint.'
+      }
+    }
+    if (step === 4) {
+      if (!selectedSlot) errs.slot = 'Select time slot'
+      else if (bookedSlots.includes(selectedSlot)) errs.slot = 'This appointment time has already been booked. Please choose another time.'
     }
     return errs
   }
@@ -759,19 +840,23 @@ export default function App() {
     const errs = validate()
     if (Object.keys(errs).length > 0) {
       setErrors(errs)
+      const firstErr = Object.values(errs)[0]
+      if (firstErr) {
+        toast.warning(firstErr, { title: 'Required Field' })
+      }
       return
     }
 
     if (step === 4) {
       // Create real appointment in PMS Appointments__s
       setSubmitting(true)
-      setSubmitError('')
       try {
         const payload = {
           firstName: first.trim(),
           lastName: last.trim(),
           patientName: `${first} ${last}`.trim(),
           mobileNumber: cleanMobile,
+          email: email.trim() || undefined,
           matchedPatientId: isExactOrPrefillMatch ? (matchedPatient?.id || null) : null,
           doctor: selectedDoctor ? { id: selectedDoctor.id, name: selectedDoctor.name } : null,
           doctorId: selectedDoctor?.id,
@@ -791,11 +876,47 @@ export default function App() {
         const result = await createPmsAppointment(payload)
         const refId = result?.appointmentId || result?.id || 'CONFIRMED'
         setBookingRef(refId)
-        setStep(5)
+        setConfirmedAppt({
+          refId,
+          serviceName: selectedService?.name || selectedService?.Service_Name || 'Consultation',
+          doctorName: selectedDoctor?.name || 'Assigned Practitioner',
+          dateLabel,
+          slot: selectedSlot,
+          patientName: `${first} ${last}`.trim()
+        })
+
+        // Instantly mark slot as booked locally so re-selection is prevented
+        if (selectedSlot) {
+          setBookedSlots((prev) => (prev.includes(selectedSlot) ? prev : [...prev, selectedSlot]))
+        }
+        // Also refresh booked slots from the server
+        if (selectedDate && selectedDoctorId) {
+          getPmsBookedAppointments(selectedDate, selectedDoctorId)
+            .then((slots) => setBookedSlots(slots))
+            .catch(() => {})
+        }
+
+        // Empty all form inputs so the form is fresh and clean for the next booking
+        setFirst('')
+        setLast('')
+        setMobile('')
+        setEmail('')
+        setMatchedPatient(null)
+        setDetailPatient(null)
+        setSelectedSlot(null)
+        setApptName('')
+        setApptEdited(false)
+        setComplaint('')
+        setExtra('')
+        setPriority('Routine')
         setErrors({})
+
+        setStep(5)
+        toast.success('Your appointment has been successfully confirmed!', { title: 'Booking Confirmed' })
       } catch (err) {
-        console.error('Appointment booking error:', err)
-        setSubmitError(err.message || 'Unable to confirm your appointment right now. Please choose another slot or try again.')
+        console.error('Appointment booking error')
+        const friendlyMsg = formatPmsErrorMessage(err.message)
+        toast.error(friendlyMsg, { title: 'Booking Incomplete' })
       } finally {
         setSubmitting(false)
       }
@@ -807,14 +928,25 @@ export default function App() {
   }
 
   const handleBack = () => {
-    if (step > 1) {
+    const minStep = showDeptStep ? 1 : 2
+    if (step > minStep) {
+      if (selectedDate && selectedDoctorId) {
+        getPmsBookedAppointments(selectedDate, selectedDoctorId)
+          .then((slots) => {
+            setBookedSlots(slots)
+            if (selectedSlot && slots.includes(selectedSlot)) {
+              setSelectedSlot(null)
+            }
+          })
+          .catch(() => {})
+      }
       setStep((prev) => prev - 1)
       setErrors({})
     }
   }
 
   const handleRestart = () => {
-    setStep(1)
+    setStep(showDeptStep ? 1 : 2)
     if (services.length > 0) setSelectedServiceId(services[0].id)
     if (doctors.length > 0) setSelectedDoctorId(doctors[0].id)
     setSelectedDate(null)
@@ -822,6 +954,7 @@ export default function App() {
     setFirst('')
     setLast('')
     setMobile('')
+    setEmail('')
     setMatchedPatient(null)
     setDetailPatient(null)
     setApptName('')
@@ -832,6 +965,12 @@ export default function App() {
     setErrors({})
     setSubmitError('')
     setBookingRef(null)
+    setConfirmedAppt(null)
+    if (selectedDate && selectedDoctorId) {
+      getPmsBookedAppointments(selectedDate, selectedDoctorId)
+        .then((slots) => setBookedSlots(slots))
+        .catch(() => {})
+    }
   }
 
   const dateLabel = selectedDate
@@ -855,36 +994,37 @@ export default function App() {
   }
 
   const stepsRail = [
-    { num: '1', label: 'Department', value: selectedService ? selectedService.name : 'Choose department' },
-    { num: '2', label: 'Doctor & time', value: selectedDoctor && selectedSlot ? `${selectedDoctor.name} · ${selectedSlot}` : 'Pick doctor & slot' },
-    { num: '3', label: 'Patient details', value: first || last ? `${first} ${last}`.trim() : 'Name and mobile' },
-    { num: '4', label: 'Confirm', value: bookingRef ? 'Confirmed' : 'Review and book' }
+    ...(showDeptStep ? [{ num: '1', stepIndex: 1, label: 'Department', value: selectedService ? selectedService.name : 'Choose department' }] : []),
+    { num: showDeptStep ? '2' : '1', stepIndex: 2, label: 'Doctor & time', value: selectedDoctor && selectedSlot ? `${selectedDoctor.name} · ${selectedSlot}` : 'Pick doctor & slot' },
+    { num: showDeptStep ? '3' : '2', stepIndex: 3, label: 'Patient details', value: first || last ? `${first} ${last}`.trim() : 'Name and mobile' },
+    { num: showDeptStep ? '4' : '3', stepIndex: 4, label: 'Confirm', value: bookingRef ? 'Confirmed' : 'Review and book' }
   ]
 
   const reviewRows = [
     { label: 'Patient', value: `${first} ${last}`.trim() || '—' },
     { label: 'Mobile', value: cleanMobile ? `+91 ${cleanMobile}` : '—' },
-    { label: 'Department', value: selectedService ? selectedService.name : '—' },
-    {
+    ...(email ? [{ label: 'Email', value: email.trim() }] : []),
+    ...(showDeptStep ? [{ label: 'Department', value: selectedService ? selectedService.name : '—' }] : []),
+    ...(portalConfig.doctors?.allowDoctorSelection !== false ? [{
       label: 'Doctor',
       value: selectedDoctor
         ? (selectedDoctor.name.startsWith('Dr.') ? selectedDoctor.name : `Dr. ${selectedDoctor.name}`)
         : '—'
-    },
+    }] : []),
     { label: 'Date', value: formatReviewDate(selectedDate) },
     {
       label: 'Time',
-      value: selectedSlot ? `${selectedSlot} · ${selectedService?.duration || 30} mins` : '—'
+      value: selectedSlot ? `${selectedSlot}${portalConfig.departments?.showDuration !== false ? ` · ${selectedService?.duration || 30} mins` : ''}` : '—'
     },
-    {
+    ...(portalConfig.patientForm?.showAppointmentName !== false ? [{
       label: 'Appointment name',
       value: effectiveApptName
         ? effectiveApptName.replace(/\s+-\s+/, ' — ')
         : (selectedService && (first || last) ? `${selectedService.name} — ${first} ${last}`.trim() : '—')
-    },
-    { label: 'Priority', value: priority || 'Routine' },
-    { label: 'Chief complaint', value: complaint.trim() || '—' },
-    { label: 'Additional info', value: extra.trim() || '—' }
+    }] : []),
+    ...(portalConfig.patientForm?.showPriority !== false ? [{ label: 'Priority', value: priority || 'Routine' }] : []),
+    ...(portalConfig.patientForm?.showReasonForVisit !== false ? [{ label: 'Chief complaint', value: complaint.trim() || '—' }] : []),
+    ...(portalConfig.patientForm?.showAdditionalNotes !== false && extra.trim() ? [{ label: 'Additional info', value: extra.trim() }] : [])
   ]
 
   if (loadingData) {
@@ -903,81 +1043,77 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {/* Brand Header (My Desk Model) */}
+      {/* Brand Header (Configurable via portal-config.json) */}
       <header className="app-header">
-        <div className="app-header__inner">
-          {hospitalInfo?.image && !hospitalLogoError ? (
-            <div className="ph-avatar ph-avatar--image">
-              <img
-                src={hospitalInfo.image}
-                alt={hospitalInfo.name || 'Hospital Logo'}
-                className="ph-avatar-img"
-                onError={() => setHospitalLogoError(true)}
-              />
-            </div>
-          ) : hospitalInfo?.name ? (
-            <div className="ph-avatar">
-              {getHospitalInitials(hospitalInfo.name)}
-            </div>
-          ) : null}
-          <div className="app-header__meta">
-            {hospitalInfo?.name && (
-              <div className="ph-title">
-                {hospitalInfo.name}
-              </div>
+        {portalConfig.companyDetails?.showHeader !== false && (
+          <div className="app-header__inner">
+            {portalConfig.companyDetails?.showLogo !== false && (
+              hospitalInfo?.image && !hospitalLogoError ? (
+                <div className="ph-avatar ph-avatar--image">
+                  <img
+                    src={hospitalInfo.image}
+                    alt={hospitalInfo.name || 'Hospital Logo'}
+                    className="ph-avatar-img"
+                    onError={() => setHospitalLogoError(true)}
+                  />
+                </div>
+              ) : hospitalInfo?.name ? (
+                <div className="ph-avatar">
+                  {getHospitalInitials(hospitalInfo.name)}
+                </div>
+              ) : null
             )}
-            {(hospitalInfo?.address || hospitalInfo?.practiceType) && (
-              <div className="ph-subtitle" title={hospitalInfo.address || hospitalInfo.practiceType}>
-                {hospitalInfo.address || hospitalInfo.practiceType}
-              </div>
+            <div className="app-header__meta">
+              {portalConfig.companyDetails?.showCompanyName !== false && hospitalInfo?.name && (
+                <div className="ph-title" title={hospitalInfo.name}>
+                  {hospitalInfo.name}
+                </div>
+              )}
+              {portalConfig.companyDetails?.showAddress !== false && (hospitalInfo?.address || hospitalInfo?.practiceType) && (
+                <div className="ph-subtitle" title={hospitalInfo.address || hospitalInfo.practiceType}>
+                  {hospitalInfo.address || hospitalInfo.practiceType}
+                </div>
+              )}
+            </div>
+            {portalConfig.companyDetails?.showClinicHours !== false && hospitalInfo?.businessHours && (
+              <>
+                <div className="app-header__divider"></div>
+                <div className="app-header__badge-wrap">
+                  <span className="avail-rec-badge" title="Clinic Business Hours">
+                    <i className="ti ti-clock"></i>
+                    <span>Clinic Hours: {formatClinicHours(hospitalInfo.businessHours)}</span>
+                  </span>
+                </div>
+              </>
+            )}
+            {portalConfig.companyDetails?.showPhone !== false && hospitalInfo?.phone && (
+              <a
+                href={`tel:${hospitalInfo.phone}`}
+                className="app-header__phone"
+                title={`Call ${hospitalInfo.phone}`}
+              >
+                <i className="ti ti-phone"></i>
+                <span className="app-header__phone-text">{hospitalInfo.phone.startsWith('+') ? hospitalInfo.phone : `+91 ${hospitalInfo.phone}`}</span>
+              </a>
             )}
           </div>
-          {hospitalInfo?.businessHours && (
-            <>
-              <div className="app-header__divider"></div>
-              <div className="app-header__badge-wrap">
-                <span className="avail-rec-badge" title="Clinic Business Hours">
-                  <i className="ti ti-clock"></i>
-                  <span>Clinic Hours: {formatClinicHours(hospitalInfo.businessHours)}</span>
-                </span>
-              </div>
-            </>
-          )}
-          {hospitalInfo?.phone && (
-            <a
-              href={`tel:${hospitalInfo.phone}`}
-              className="app-header__phone"
-              title={`Call ${hospitalInfo.phone}`}
-            >
-              <i className="ti ti-phone"></i>
-              <span className="app-header__phone-text">{hospitalInfo.phone.startsWith('+') ? hospitalInfo.phone : `+91 ${hospitalInfo.phone}`}</span>
-            </a>
-          )}
-        </div>
+        )}
 
-        {/* Mobile Header Stepper: 4-Segment Progress Bar + Step Eyebrow (Image 1 design) */}
+        {/* Mobile Header Stepper: Progress Bar + Step Eyebrow */}
         <div className="mobile-header-stepper">
           <div className="mobile-progress-stepper">
-            <div
-              onClick={() => { if (step > 1) { setStep(1); setErrors({}); } }}
-              className={`mobile-progress-seg ${step > 1 ? 'is-completed is-clickable' : step === 1 ? 'is-active' : ''}`}
-              title={step > 1 ? 'Go back to Step 1' : ''}
-            ></div>
-            <div
-              onClick={() => { if (step > 2) { setStep(2); setErrors({}); } }}
-              className={`mobile-progress-seg ${step > 2 ? 'is-completed is-clickable' : step === 2 ? 'is-active' : ''}`}
-              title={step > 2 ? 'Go back to Step 2' : ''}
-            ></div>
-            <div
-              onClick={() => { if (step > 3) { setStep(3); setErrors({}); } }}
-              className={`mobile-progress-seg ${step > 3 ? 'is-completed is-clickable' : step === 3 ? 'is-active' : ''}`}
-              title={step > 3 ? 'Go back to Step 3' : ''}
-            ></div>
-            <div className={`mobile-progress-seg ${step > 4 ? 'is-completed' : step === 4 ? 'is-active' : ''}`}></div>
+            {stepsRail.map((st) => (
+              <div
+                key={st.stepIndex}
+                onClick={() => { if (step > st.stepIndex) { setStep(st.stepIndex); setErrors({}); } }}
+                className={`mobile-progress-seg ${step > st.stepIndex ? 'is-completed is-clickable' : step === st.stepIndex ? 'is-active' : ''}`}
+                title={step > st.stepIndex ? `Go back to ${st.label}` : ''}
+              ></div>
+            ))}
           </div>
           <div className="mobile-step-eyebrow">
             <span className="mobile-step-eyebrow__badge">
-              {step === 5 ? 'CONFIRMED' : `STEP ${step} OF 4`}
+              {step === 5 ? 'CONFIRMED' : `STEP ${showDeptStep ? step : step - 1} OF ${stepsRail.length}`}
             </span>
             <span className="mobile-step-eyebrow__topic">
               {step === 1 ? 'Department' :
@@ -998,19 +1134,39 @@ export default function App() {
             Book appointment
           </div>
           <ol className="steps-rail">
-            {stepsRail.map((st, i) => {
-              const n = i + 1
-              const on = step === n
-              const past = step > n
+            {stepsRail.map((st) => {
+              const on = step === st.stepIndex
+              const past = step > st.stepIndex
               return (
-                <li key={st.num}>
+                <li key={st.stepIndex}>
                   <button
                     type="button"
-                    onClick={() => { if (n < step) { setStep(n); setErrors({}); } }}
+                    onClick={() => { if (st.stepIndex < step) { setStep(st.stepIndex); setErrors({}); } }}
                     className={`step-rail-btn ${on ? 'is-active' : ''} ${past ? 'is-past' : 'is-disabled'}`}
                   >
                     <span className={`step-rail-badge ${past ? 'is-past' : on ? 'is-active' : ''}`}>
-                      {past ? <i className="ti ti-check"></i> : st.num}
+                      {past ? (
+                        <svg
+                          className="step-rail-check-icon"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 14 14"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                          aria-hidden="true"
+                        >
+                          <circle cx="7" cy="7" r="7" fill="#5DA84E" />
+                          <polyline
+                            points="3.5,7 6,9.5 10.5,4.5"
+                            stroke="white"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      ) : (
+                        st.num
+                      )}
                     </span>
                     <span className="step-rail-info">
                       <span className={`step-rail-label ${on ? 'is-active' : ''}`}>
@@ -1066,14 +1222,6 @@ export default function App() {
                   </div>
                 )}
 
-                {fetchError && displayServices.length > 0 && (
-                  <div className="error-banner">
-                    Unable to refresh departments right now. Showing available cached services.
-                  </div>
-                )}
-
-                {errors.service && <div className="section-error">{errors.service}</div>}
-
                 {!loadingData && displayServices.length === 0 && (
                   <div className="empty-banner" style={{ padding: '36px 24px', textAlign: 'center' }}>
                     <div style={{ fontSize: '32px', marginBottom: '12px' }}>🩺</div>
@@ -1096,57 +1244,74 @@ export default function App() {
                 )}
 
                 {!loadingData && displayServices.length > 0 && (
-                  <div className="cards-grid">
-                    {displayServices.map((s) => {
-                      const on = String(s.id) === String(selectedServiceId)
-                      const icon = getServiceIcon(s.name)
-                      const docCount = s.doctorCount ?? (Array.isArray(s.members) ? s.members.length : 0)
-                      return (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedServiceId(s.id)
-                            setSelectedSlot(null)
-                            clearError('service')
-                          }}
-                          className={`select-card ${on ? 'is-selected' : ''}`}
-                        >
-                          <div className="service-card__top">
-                            <span className={`service-card__icon ${on ? 'is-selected' : ''}`}>
-                              <i className={`ti ${icon}`}></i>
-                            </span>
-                            <div className="service-card__info">
-                              <div className="service-card__title">
-                                {s.name}
+                  <>
+                    <div className="cards-grid">
+                      {displayServices.map((s) => {
+                        const on = String(s.id) === String(selectedServiceId)
+                        const icon = getServiceIcon(s.name)
+                        const docCount = s.doctorCount ?? (Array.isArray(s.members) ? s.members.length : 0)
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedServiceId(s.id)
+                              setSelectedSlot(null)
+                              clearError('service')
+                            }}
+                            className={`select-card ${on ? 'is-selected' : ''}`}
+                          >
+                            <div className="service-card__top">
+                              <span className={`service-card__icon ${on ? 'is-selected' : ''}`}>
+                                <i className={`ti ${icon}`}></i>
+                              </span>
+                              <div className="service-card__info">
+                                <div className="service-card__title">
+                                  {s.name}
+                                </div>
+                                <div className="service-card__meta-line">
+                                  {portalConfig.departments?.showDuration !== false && <span>{s.duration} min</span>}
+                                  {portalConfig.departments?.showDuration !== false && portalConfig.departments?.showDoctorCount !== false && (
+                                    <span className="service-card__meta-dot">•</span>
+                                  )}
+                                  {portalConfig.departments?.showDoctorCount !== false && (
+                                    <span>{docCount} {docCount === 1 ? 'doctor' : 'doctors'}</span>
+                                  )}
+                                </div>
                               </div>
-                              <div className="service-card__meta-line">
-                                <span>{s.duration} min</span>
-                                <span className="service-card__meta-dot">•</span>
-                                <span>{docCount} {docCount === 1 ? 'doctor' : 'doctors'}</span>
-                              </div>
+                              {portalConfig.departments?.showDuration !== false && (
+                                <span className="service-card__badge desktop-only">
+                                  {s.duration} min
+                                </span>
+                              )}
+                              <i className="ti ti-chevron-right select-card__chevron"></i>
                             </div>
-                            <span className="service-card__badge desktop-only">
-                              {s.duration} min
-                            </span>
-                            <i className="ti ti-chevron-right select-card__chevron"></i>
-                          </div>
 
-                          <div className="service-card__desc desktop-only">
-                            {getServiceDescription(s)}
-                          </div>
+                            <div className="service-card__desc desktop-only">
+                              {getServiceDescription(s)}
+                            </div>
 
-                          <div className="service-card__footer desktop-only">
-                            <span className="service-card__doc-count">
-                              <strong className="service-card__status">
-                                {docCount > 0 ? `${docCount} ${docCount === 1 ? 'Doctor Available' : 'Doctors Available'}` : 'Doctors Available'}
-                              </strong>
-                            </span>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
+                            {portalConfig.departments?.showDoctorCount !== false && (
+                              <div className="service-card__footer desktop-only">
+                                <span className="service-card__doc-count">
+                                  <strong className="service-card__status">
+                                    {docCount > 0 ? `${docCount} ${docCount === 1 ? 'Doctor Available' : 'Doctors Available'}` : 'Doctors Available'}
+                                  </strong>
+                                </span>
+                              </div>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {errors.service && (
+                      <div className="field-error-msg field-error-msg--below">
+                        <i className="ti ti-alert-circle"></i>
+                        <span>{errors.service}</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -1155,53 +1320,56 @@ export default function App() {
             {step === 2 && (
               <div className="step-flow--lg">
                 {/* Doctor Selection from PMS Users */}
-                <div className="step-flow">
-                  <div className="section-divider">
-                    <span className="section-divider__label">
-                      {selectedService ? `Doctors for ${selectedService.name}` : 'Doctor'}
-                    </span>
-                    <span className="section-divider__line"></span>
-                    {errors.doctor && <span className="section-error push-right">{errors.doctor}</span>}
-                  </div>
+                {portalConfig.doctors?.allowDoctorSelection !== false && (
+                  <div className="step-flow">
+                    <div className="section-divider">
+                      <span className="section-divider__label">
+                        {selectedService ? `Doctors for ${selectedService.name}` : 'Doctor'}
+                      </span>
+                      <span className="section-divider__line"></span>
+                    </div>
 
-                  <div className="doctors-grid">
-                    {availableDoctors.map((d) => {
-                      const on = String(d.id) === String(selectedDoctorId)
-                      const initials = (d.name || 'DR').replace(/^Dr\.\s*/i, '').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()
-                      return (
-                        <button
-                          key={d.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedDoctorId(d.id)
-                            setSelectedSlot(null)
-                            setDisabledDateNotice(null)
-                            clearError('doctor')
-                          }}
-                          className={`select-card ${on ? 'is-selected' : ''}`}
-                        >
-                          <div className="doctor-card__row">
-                            <DoctorAvatar doctor={d} isSelected={on} initials={initials} />
-                            <div className="doctor-card__info">
-                              <div className="doctor-name" title={d.name}>{d.name}</div>
-                              {d.medicalDegrees && (
-                                <div className="doctor-degrees" title={d.medicalDegrees}>{d.medicalDegrees}</div>
-                              )}
-                              <div className="doctor-role" title={d.role || 'Consultant Specialist'}>{d.role || 'Consultant Specialist'}</div>
-                              {d.email && (
-                                <div className="doctor-email desktop-only" title={d.email}>
-                                  <i className="ti ti-mail"></i>
-                                  <span className="doctor-email__text">{d.email}</span>
-                                </div>
-                              )}
+                    <div className="doctors-grid">
+                      {availableDoctors.map((d) => {
+                        const on = String(d.id) === String(selectedDoctorId)
+                        const initials = (d.name || 'DR').replace(/^Dr\.\s*/i, '').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase()
+                        return (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedDoctorId(d.id)
+                              setSelectedSlot(null)
+                              setDisabledDateNotice(null)
+                              clearError('doctor')
+                            }}
+                            className={`select-card ${on ? 'is-selected' : ''}`}
+                          >
+                            <div className="doctor-card__row">
+                              <DoctorAvatar doctor={d} isSelected={on} initials={initials} />
+                              <div className="doctor-card__info">
+                                <div className="doctor-name" title={d.name}>{d.name}</div>
+                                {portalConfig.doctors?.showSpecialization !== false && d.medicalDegrees && (
+                                  <div className="doctor-degrees" title={d.medicalDegrees}>{d.medicalDegrees}</div>
+                                )}
+                                {portalConfig.doctors?.showSpecialization !== false && (
+                                  <div className="doctor-role" title={d.role || 'Consultant Specialist'}>{d.role || 'Consultant Specialist'}</div>
+                                )}
+                                {d.email && (
+                                  <div className="doctor-email desktop-only" title={d.email}>
+                                    <i className="ti ti-mail"></i>
+                                    <span className="doctor-email__text">{d.email}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <i className="ti ti-chevron-right select-card__chevron"></i>
                             </div>
-                            <i className="ti ti-chevron-right select-card__chevron"></i>
-                          </div>
-                        </button>
-                      )
-                    })}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Schedule & Slot Picker */}
                 <div className="step-flow">
@@ -1281,7 +1449,7 @@ export default function App() {
                   <div className="form-group">
                     <span className="form-label">
                       Available time slots <span className="form-required">*</span>
-                      {errors.slot && <span className="section-error push-right">{errors.slot}</span>}
+                      {errors.slot && <span className="section-error inline-slot-error">{errors.slot}</span>}
                     </span>
 
                     {isDoctorOnLeave ? (
@@ -1386,7 +1554,6 @@ export default function App() {
                         )}
                       </>
                     )}
-
                   </div>
                 </div>
               </div>
@@ -1454,6 +1621,23 @@ export default function App() {
                       </span>
                       {errors.mobile && <span className="section-error">{errors.mobile}</span>}
                     </label>
+
+                    {(portalConfig.patientForm?.requireEmail || portalConfig.patientForm?.showEmail) && (
+                      <label className="form-group">
+                        <span className="form-label">
+                          Email address {portalConfig.patientForm?.requireEmail && <span className="form-required">*</span>}
+                        </span>
+                        <span className="form-control">
+                          <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => { setEmail(e.target.value); clearError('email'); }}
+                            placeholder="patient@example.com"
+                          />
+                        </span>
+                        {errors.email && <span className="section-error">{errors.email}</span>}
+                      </label>
+                    )}
                   </div>
 
                   {matchedPatient && !searchingPatient && (
@@ -1499,63 +1683,78 @@ export default function App() {
                     <span className="section-divider__line"></span>
                   </div>
 
-                  <label className="form-group">
-                    <span className="form-label">Appointment name</span>
-                    <span className="form-control">
-                      <input
-                        type="text"
-                        value={effectiveApptName}
-                        onChange={(e) => { setApptName(e.target.value); setApptEdited(true); }}
-                      />
-                    </span>
-                  </label>
+                  {portalConfig.patientForm?.showAppointmentName !== false && (
+                    <label className="form-group">
+                      <span className="form-label">Appointment name</span>
+                      <span className="form-control">
+                        <input
+                          type="text"
+                          value={effectiveApptName}
+                          onChange={(e) => { setApptName(e.target.value); setApptEdited(true); }}
+                        />
+                      </span>
+                    </label>
+                  )}
 
-                  <label className="form-group">
-                    <span className="form-label">
-                      Chief complaint <span className="form-required">*</span>
-                    </span>
-                    <span className="form-control-textarea">
-                      <textarea
-                        rows={3}
-                        value={complaint}
-                        onChange={(e) => { setComplaint(e.target.value); clearError('complaint'); }}
-                        placeholder="Describe the clinical symptoms or reason for visit"
-                      />
-                    </span>
-                    {errors.complaint && <span className="section-error">{errors.complaint}</span>}
-                  </label>
+                  {portalConfig.patientForm?.showReasonForVisit !== false && (
+                    <label className="form-group">
+                      <span className="form-label">
+                        Chief complaint {portalConfig.patientForm?.requireReasonForVisit !== false && <span className="form-required">*</span>}
+                      </span>
+                      <span className="form-control-textarea">
+                        <textarea
+                          rows={3}
+                          value={complaint}
+                          onChange={(e) => { setComplaint(e.target.value); clearError('complaint'); }}
+                          placeholder="Describe the clinical symptoms or reason for visit"
+                        />
+                      </span>
+                      {errors.complaint && <span className="section-error">{errors.complaint}</span>}
+                    </label>
+                  )}
 
-                  <label className="form-group">
-                    <span className="form-label">Additional information</span>
-                    <span className="form-control-textarea">
-                      <textarea
-                        rows={2}
-                        value={extra}
-                        onChange={(e) => setExtra(e.target.value)}
-                        placeholder="Prior treatments, allergies, or notes for the doctor"
-                      />
-                    </span>
-                  </label>
+                  {portalConfig.patientForm?.showAdditionalNotes !== false && (
+                    <label className="form-group">
+                      <span className="form-label">Additional information</span>
+                      <span className="form-control-textarea">
+                        <textarea
+                          rows={2}
+                          value={extra}
+                          onChange={(e) => setExtra(e.target.value)}
+                          placeholder="Prior treatments, allergies, or notes for the doctor"
+                        />
+                      </span>
+                    </label>
+                  )}
 
                   {/* Priority Selector */}
-                  <div className="form-group">
-                    <span className="form-label">Priority</span>
-                    <div className="priority-group">
-                      {priorities.map((p) => {
-                        const on = priority === p
-                        return (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => setPriority(p)}
-                            className={`priority-btn ${on ? 'is-active' : ''}`}
-                          >
-                            {p}
-                          </button>
-                        )
-                      })}
+                  {portalConfig.patientForm?.showPriority !== false && (
+                    <div className="form-group">
+                      <span className="form-label">Priority</span>
+                      <div className="priority-group">
+                        {priorities.map((p) => {
+                          const on = priority === p
+                          return (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setPriority(p)}
+                              className={`priority-btn ${on ? 'is-active' : ''}`}
+                            >
+                              {p}
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      {errors.doctor && (
+                        <div className="field-error-msg">
+                          <i className="ti ti-alert-circle"></i>
+                          <span>{errors.doctor}</span>
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1563,12 +1762,6 @@ export default function App() {
             {/* STEP 4: Review and Confirm */}
             {step === 4 && (
               <div className="step-flow">
-                {submitError && (
-                  <div className="error-banner">
-                    {submitError}
-                  </div>
-                )}
-
                 <div className="review-card-table">
                   {reviewRows.map((r) => (
                     <div key={r.label} className="review-row">
@@ -1585,12 +1778,22 @@ export default function App() {
               <div className="confirmation-wrap">
                 <div className="confirmation-header">
                   <span className="confirmation-icon">
-                    <i className="ti ti-check"></i>
+                    <svg width="46" height="46" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <circle cx="7" cy="7" r="7" fill="#5DA84E" />
+                      <polyline
+                        points="3.5,7 6,9.5 10.5,4.5"
+                        stroke="white"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
                   </span>
                   <span className="wizard-card__title-group">
                     <span className="wizard-card__title">Appointment confirmed</span>
                     <span className="confirmation-header__subtitle">
-                      {selectedService?.name} · {selectedDoctor?.name} · {dateLabel} at {selectedSlot}
+                      {confirmedAppt?.serviceName || selectedService?.name} · {confirmedAppt?.doctorName || selectedDoctor?.name} · {confirmedAppt?.dateLabel || dateLabel} at {confirmedAppt?.slot || 'Scheduled time'}
+                      {confirmedAppt?.patientName ? ` · Patient: ${confirmedAppt.patientName}` : ''}
                     </span>
                   </span>
                 </div>
@@ -1615,7 +1818,7 @@ export default function App() {
           {step <= 4 && (
             <div className="wizard-footer">
               <div className="wizard-footer__btn-row">
-                {step > 1 && (
+                {step > (showDeptStep ? 1 : 2) && (
                   <button
                     type="button"
                     onClick={handleBack}
@@ -1649,21 +1852,6 @@ export default function App() {
 
         </section>
       </main>
-
-      {/* Footer */}
-      <footer className="app-footer">
-        <div className="app-footer__inner">
-          {hospitalInfo?.name && (
-            <span>
-              {hospitalInfo.name}
-              {hospitalInfo.address ? ` · ${hospitalInfo.address}` : ''}
-            </span>
-          )}
-          <span className="app-footer__right">
-            Verified Clinic Booking Portal
-          </span>
-        </div>
-      </footer>
 
       {/* Patient Full Record Detail Modal */}
       {detailPatient && (

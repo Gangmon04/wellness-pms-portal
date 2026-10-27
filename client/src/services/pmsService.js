@@ -1,10 +1,12 @@
-const CLOUD_CATALYST_URL = import.meta.env.VITE_CATALYST_URL || 'https://wellness-pms-60060142033.development.catalystserverless.in/server/pms_appointment_service';
+// Dynamic backend endpoint resolution without hardcoded project IDs or URLs
+const CLOUD_CATALYST_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_CATALYST_URL || '';
 
-// If on localhost (Vite dev or Catalyst serve) or Catalyst domain, use relative /server; else use Cloud URL (e.g. on Slate)
+// If running in browser and on a Catalyst domain, localhost, or same-origin, route to relative /server
 const PRIMARY_CATALYST_URL = (typeof window !== 'undefined' && (
   window.location.hostname === 'localhost' ||
   window.location.hostname === '127.0.0.1' ||
-  window.location.hostname.includes('catalystserverless.in')
+  window.location.hostname.includes('catalystserverless') ||
+  !CLOUD_CATALYST_URL
 ))
   ? '/server/pms_appointment_service'
   : CLOUD_CATALYST_URL;

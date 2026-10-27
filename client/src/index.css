@@ -274,6 +274,9 @@ textarea::placeholder {
   font-family: var(--font-semibold);
   color: var(--font-color);
   line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ph-subtitle {

@@ -1,7 +1,7 @@
 'use strict';
 
 const { getAccessToken, clearAccessToken } = require('./zohoAuth');
-const PMS_BASE_URL = 'https://pms.zohosolution.in/crm';
+const { PMS_BASE_URL } = require('./config');
 
 /**
  * Zoho REST Client (ZRC) helper for CRM v8 API requests.

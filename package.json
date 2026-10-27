@@ -8,7 +8,7 @@
     "build": "npm run build --prefix client",
     "serve": "catalyst serve",
     "deploy": "catalyst deploy",
-    "deploy:slate": "catalyst deploy slate",
+    "deploy:client": "catalyst deploy --only client",
     "deploy:functions": "catalyst deploy --only functions"
   }
 }

@@ -8,6 +8,9 @@ export default defineConfig({
   server: {
     port: 7002,
     open: false,
+    fs: {
+      allow: ['..']
+    },
     proxy: {
       '/server': {
         target: 'http://127.0.0.1:3000',
