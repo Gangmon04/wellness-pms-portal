@@ -169,10 +169,13 @@ async function getAccessToken() {
 
 function clearAccessToken() {
 	cachedToken = null;
+	cachedTokenClientId = null;
 	tokenExpiryTime = 0;
 	try {
-		if (fs.existsSync(TOKEN_CACHE_FILE)) {
-			fs.unlinkSync(TOKEN_CACHE_FILE);
+		const { clientId } = getCredentials();
+		const filePath = getTokenCacheFile(clientId);
+		if (fs.existsSync(filePath)) {
+			fs.unlinkSync(filePath);
 		}
 	} catch (e) {}
 }
