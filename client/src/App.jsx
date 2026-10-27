@@ -1198,7 +1198,7 @@ export default function App() {
               </div>
             </div>
             <span className="dsk-chip dsk-chip--brand">
-              {step === 5 ? 'Confirmed' : `Step ${step} of 4`}
+              {step === 5 ? (confirmedAppt?.refId && confirmedAppt.refId !== 'CONFIRMED' ? `Confirmed · #${confirmedAppt.refId}` : 'Confirmed') : `Step ${step} of 4`}
             </span>
           </div>
 
@@ -1796,6 +1796,12 @@ export default function App() {
                       {confirmedAppt?.serviceName || selectedService?.name} · {confirmedAppt?.doctorName || selectedDoctor?.name} · {confirmedAppt?.dateLabel || dateLabel} at {confirmedAppt?.slot || 'Scheduled time'}
                       {confirmedAppt?.patientName ? ` · Patient: ${confirmedAppt.patientName}` : ''}
                     </span>
+                    {confirmedAppt?.refId && confirmedAppt.refId !== 'CONFIRMED' && (
+                      <div className="confirmation-ref-box">
+                        <span className="confirmation-ref-label">Appointment ID</span>
+                        <span className="confirmation-ref-code">#{confirmedAppt.refId}</span>
+                      </div>
+                    )}
                   </span>
                 </div>
 
