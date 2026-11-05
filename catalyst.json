@@ -6,7 +6,12 @@
     "targets": [
       "pms_appointment_service"
     ],
-    "ignore": [],
+    "ignore": [
+      ".env",
+      ".env.*",
+      "**/.env",
+      "**/.env.*"
+    ],
     "source": "functions"
   }
 }

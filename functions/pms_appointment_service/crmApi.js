@@ -39,6 +39,7 @@ const MODULES = {
 
 const APPOINTMENT_FIELDS = {
 	ID: 'id',
+	APPOINTMENT_ID: process.env.PMS_FIELD_APPOINTMENT_ID || 'Appointment_ID',
 	NAME: 'Appointment_Name',
 	START_TIME: 'Appointment_Start_Time',
 	END_TIME: 'Appointment_End_Time',

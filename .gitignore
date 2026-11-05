@@ -8,15 +8,27 @@ yarn-error.log*
 .build/
 catalyst-debug.log
 .catalyst/
+.catalystrc
+*.zip
+
+# Setup wizard progress & logs
+.setup-progress.json
+*.log
+setup.log
 
 # Client build output
 client/dist/
 client/node_modules/
+functions/**/node_modules/
 
 # Environment files
 .env
 .env.local
 .env.*.local
+functions/**/.env
+functions/**/.env.*
+client/**/.env
+client/**/.env.*
 
 # OS files
 Thumbs.db

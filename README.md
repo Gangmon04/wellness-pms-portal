@@ -1,17 +1,40 @@
-# PMS Appointment Portal — Configuration & Embed Guide
+# PMS Appointment Booking Portal — Zoho Catalyst
 
-This guide explains how to customize and configure the appointment booking portal for **Zoho Sites**, **WordPress**, or any website without modifying core application code.
+A production-grade, white-label appointment booking web portal integrated with **Zoho Practice Management System (PMS)** and powered by **Zoho Catalyst Serverless Functions** and **Web Client Hosting**.
 
 ---
 
-## 1. Configuration File: `portal-config.json`
+## 🚀 Quick Setup & Deployment
 
-The master configuration file is located directly at the **project root**:
-* [`portal-config.json`](file:///d:/Employee%20Welness/wellness-pms/portal-config.json) (Master single source of truth for portal settings)
+To deploy this application to your Zoho Catalyst account, open your terminal in the project root and run:
 
-It is automatically synchronized into the client at build time (`client/src/portal-config.json` and `client/public/portal-config.json`).
+```powershell
+.\setup.ps1
+```
 
-### Full Configuration Reference
+> **Tip:** If PowerShell restricts script execution on your computer, run:
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File .\setup.ps1
+> ```
+
+The interactive wizard will automatically guide you through all 6 deployment steps:
+1. **File Validation** — Verifies all required files and configurations exist.
+2. **Prerequisites Check** — Checks Node.js and installs/authenticates Zoho Catalyst CLI.
+3. **Project Association** — Links to your Zoho Catalyst project.
+4. **Dependency Installation** — Installs backend and frontend dependencies.
+5. **Backend Deployment** — Configures OAuth credentials and deploys the serverless function.
+6. **Frontend Deployment** — Builds the React application and deploys it to Catalyst Web Client Hosting.
+
+For advanced deployment parameters, see [**`setup.md`**](setup.md) and [**`helpdoc.md`**](helpdoc.md).
+
+---
+
+## ⚙️ Customizing the Portal (`portal-config.json`)
+
+The single master configuration file is located at the project root:
+* **[`portal-config.json`](portal-config.json)**
+
+You can customize branding, colors, feature toggles, and form requirements directly without modifying code:
 
 ```json
 {
@@ -49,105 +72,52 @@ It is automatically synchronized into the client at build time (`client/src/port
 }
 ```
 
-### Options Breakdown
-
-| Section | Setting | Type | Default | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **`companyDetails`** | `showHeader` | Boolean | `true` | Show or hide the entire top branding header. |
-| | `showLogo` | Boolean | `true` | Show or hide the hospital/clinic logo or initials avatar. |
-| | `showCompanyName` | Boolean | `true` | Display hospital name fetched from PMS. |
-| | `showAddress` | Boolean | `true` | Display clinic address / practice type. |
-| | `showClinicHours` | Boolean | `true` | Display business hours badge. |
-| | `showPhone` | Boolean | `true` | Display click-to-call phone button. |
-| **`departments`** | `showDepartmentStep` | Boolean | `true` | Set to `false` to skip Step 1 and jump straight to Doctor & Date selection. |
-| | `defaultDepartment` | String | `""` | Department ID or name (e.g. `"Cardiology"`) to auto-select. |
-| | `showDuration` | Boolean | `true` | Show consultation duration badge (e.g. `30 min`). |
-| | `showDoctorCount` | Boolean | `true` | Show count of available doctors on department cards. |
-| **`doctors`** | `allowDoctorSelection` | Boolean | `true` | Set to `false` to auto-assign the first doctor and hide the doctor picker. |
-| | `showDoctorPhotos` | Boolean | `true` | Show doctor image from PMS. If `false`, displays initials avatar. |
-| | `showSpecialization` | Boolean | `true` | Show doctor degrees and role subtitle. |
-| **`patientForm`** | `requireEmail` | Boolean | `false` | When `true`, shows an email field and marks it mandatory. |
-| | `showAppointmentName` | Boolean | `true` | Show or hide the appointment name input field. |
-| | `showReasonForVisit` | Boolean | `true` | Show or hide the chief complaint / reason for visit field. |
-| | `requireReasonForVisit`| Boolean | `true` | Whether chief complaint is required (`*`) to proceed. |
-| | `showAdditionalNotes` | Boolean | `true` | Show or hide the additional notes textarea. |
-| | `showPriority` | Boolean | `true` | Show or hide the Routine / Urgent priority buttons. |
-| **`theme`** | `primaryColor` | Hex String | `"#0284c7"` | Primary brand color applied to active buttons, tabs, and badges. |
-| | `borderRadius` | String | `"16px"` | Corner roundness for cards and inputs. |
-
 ---
 
-## 2. Dynamic URL Overrides (For WordPress & Zoho Sites Embeds)
+## 🌐 Embedding in Your Website (WordPress, Zoho Sites, etc.)
 
-You can override **any** setting dynamically via URL query parameters when embedding the portal into WordPress pages or Zoho Sites via `<iframe>`.
+Once deployed, you can embed the booking portal into any web page using an `<iframe>`:
 
-### Available Query Parameters
-
-| Parameter | Example | Effect |
-| :--- | :--- | :--- |
-| `hideHeader=true` | `?hideHeader=true` | Hides the top clinic header bar (ideal when embedding inside existing website header). |
-| `hideDept=true` | `?hideDept=true` | Skips Step 1 (Department step) and starts at Doctor & Date selection. |
-| `dept=<name>` | `?dept=Cardiology` | Automatically preselects the specified department. |
-| `hideDoctors=true` | `?hideDoctors=true` | Hides the doctor picker (auto-assigns doctor). |
-| `hideDoctorPhotos=true`| `?hideDoctorPhotos=true`| Uses initials avatars instead of doctor photos. |
-| `requireEmail=true` | `?requireEmail=true` | Requires patient email address. |
-| `hideApptName=true` | `?hideApptName=true` | Hides the appointment name field. |
-| `hideNotes=true` | `?hideNotes=true` | Hides additional notes field. |
-| `hidePriority=true` | `?hidePriority=true` | Hides priority buttons. |
-| `primaryColor=<hex>` | `?primaryColor=%230284c7`| Changes brand color to match the host website theme. |
-| `first`, `last`, `mobile`| `?first=John&mobile=9876543210`| Prepopulates patient info if user is logged into your site. |
-
----
-
-## 3. Embedding Examples
-
-### Example A: Standard Full Portal Embed
 ```html
 <iframe
-  src="https://your-portal-url.catalystserverless.in/app/"
+  src="https://<your-domain>.catalystserverless.in/app/"
   width="100%"
   height="900"
   frameborder="0"
-  style="border: none; border-radius: 12px;"
+  style="border: none; border-radius: 14px;"
 ></iframe>
 ```
 
-### Example B: Department-Specific Page (e.g. "Book Cardiology Consultation" in WordPress)
-```html
-<iframe
-  src="https://your-portal-url.catalystserverless.in/app/?hideHeader=true&hideDept=true&dept=Cardiology"
-  width="100%"
-  height="820"
-  frameborder="0"
-  style="border: none;"
-></iframe>
-```
+### URL Query Overrides (Optional)
 
-### Example C: Seamless Embedded Widget with Custom Brand Color
-```html
-<iframe
-  src="https://your-portal-url.catalystserverless.in/app/?hideHeader=true&primaryColor=%2310b981&requireEmail=true"
-  width="100%"
-  height="850"
-  frameborder="0"
-  style="border: none;"
-></iframe>
-```
+You can override any configuration setting dynamically using URL query parameters:
+
+| Parameter | Example | Effect |
+| :--- | :--- | :--- |
+| `hideHeader=true` | `?hideHeader=true` | Hides the top branding header (best for embedded frames). |
+| `hideDept=true` | `?hideDept=true` | Skips department selection and starts directly at doctor/date selection. |
+| `dept=<Name>` | `?dept=Cardiology` | Auto-selects the specified department. |
+| `hideDoctors=true` | `?hideDoctors=true` | Hides doctor picker and auto-assigns practitioner. |
+| `requireEmail=true` | `?requireEmail=true` | Makes email input mandatory on the booking form. |
+| `first`, `last`, `mobile` | `?first=John&mobile=9876543210` | Pre-populates patient information fields. |
 
 ---
 
-## 4. Backend CRM Module & Field API Names (`crmApi.js` & `config.js`)
+## 📁 Project Structure
 
-Following the **WidgetRepo** single source of truth convention, all Zoho CRM / PMS module names and field API names are centralized in:
-* [`functions/pms_appointment_service/crmApi.js`](file:///d:/Employee%20Welness/wellness-pms/functions/pms_appointment_service/crmApi.js) (and re-exported by [`config.js`](file:///d:/Employee%20Welness/wellness-pms/functions/pms_appointment_service/config.js))
+```
+├── portal-config.json       # Master runtime branding & feature configuration
+├── catalyst.json            # Zoho Catalyst architecture mapping
+├── setup.ps1                # Automated 6-step setup & deployment wizard
+├── setup.md                 # Complete setup wizard documentation
+├── helpdoc.md               # Quick reference guide & troubleshooting
+├── client/                  # React 19 + Vite frontend web portal
+│   ├── public/              # Static assets (favicons, logos, client-package.json)
+│   └── src/                 # React UI components & services
+└── functions/               # Catalyst Serverless Functions (ZRC Backend)
+    └── pms_appointment_service/
+        ├── index.js         # REST API router & rate limiter
+        ├── crmApi.js        # Centralized Zoho CRM/PMS schema field definitions
+        └── services/        # Appointment, doctor, schedule, and patient services
+```
 
-If any module or field API name differs in your specific Zoho CRM/PMS vertical setup, you can edit it directly in `crmApi.js` or set an environment variable override without modifying service code:
-
-| Category | Constant Group | Key Names & Defaults |
-| :--- | :--- | :--- |
-| **Modules** | `MODULES` | `APPOINTMENTS` (`'Appointments__s'`), `SERVICES` (`'Services__s'`), `PATIENT` (`'Patient'`), `CONTACTS` (`'Contacts'`), `APP_SETTINGS` (`'App_Settings'`), `USERS` (`'users'`), `ORG` (`'org'`) |
-| **Appointments** | `APPOINTMENT_FIELDS` | `NAME` (`'Appointment_Name'`), `START_TIME` (`'Appointment_Start_Time'`), `END_TIME` (`'Appointment_End_Time'`), `APPOINTMENT_FOR` (`'Appointment_For'`), `SERVICE_NAME` (`'Service_Name'`), `OWNER` (`'Owner'`), `STATUS` (`'Status'`), `PRIORITY` (`'Priority'`) |
-| **Services** | `SERVICE_FIELDS` | `NAME` (`'Service_Name'`), `DURATION` (`'Duration'`), `PRICE` (`'Price'`), `STATUS` (`'Status'`), `LOCATION` (`'Location'`), `MEMBERS` (`'Members'`) |
-| **Patient** | `PATIENT_FIELDS` | `FIRST_NAME` (`'First_Name'`), `LAST_NAME` (`'Last_Last'`), `FULL_NAME` (`'Full_Name'`), `MOBILE` (`'Mobile_No'`), `EMAIL` (`'Email'`) |
-| **Contacts** | `CONTACT_FIELDS` | `FIRST_NAME` (`'First_Name'`), `LAST_NAME` (`'Last_Name'`), `MOBILE` (`'Mobile'`), `PHONE` (`'Phone'`), `EMAIL` (`'Email'`), `LEAD_SOURCE` (`'Lead_Source'`) |
-| **Settings** | `APP_SETTINGS_FIELDS` | `HOSPITAL_NAME` (`'Hospital_Name'`), `CONTACT_NUMBER` (`'Contact_Number'`), `EMAIL_ID` (`'Email_ID'`), `PRACTICE_TYPE` (`'Practice_Type'`) |

@@ -4,12 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "sync-config": "node -e \"const fs = require('fs'); if (fs.existsSync('../portal-config.json')) { fs.copyFileSync('../portal-config.json', './public/portal-config.json'); fs.copyFileSync('../portal-config.json', './src/portal-config.json'); }\"",
-    "predev": "npm run sync-config",
     "dev": "vite",
-    "prebuild": "npm run sync-config",
     "build": "vite build",
-    "zip": "tar.exe -a -c -f dist.zip -C dist assets client-package.json favicon.svg icons.svg index.html portal-config.json zoho-logo.svg",
+    "zip": "tar.exe -a -c -f dist.zip -C dist assets client-package.json favicon.png favicon.svg index.html zoho-logo.svg",
     "lint": "oxlint",
     "preview": "vite preview"
   },

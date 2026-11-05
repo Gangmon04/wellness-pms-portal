@@ -1,0 +1,13 @@
+# Ignore sensitive environment variables
+.env
+.env.*
+functions/**/.env
+functions/**/.env.*
+client/**/.env
+client/**/.env.*
+
+# Ignore temporary and test files
+scratch/
+test/
+**/*.tmp
+make 

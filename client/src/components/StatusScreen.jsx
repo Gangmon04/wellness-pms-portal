@@ -35,7 +35,8 @@ export function LoadingScreen({ message = 'Loading appointment services…', log
         }}
       >
         <img
-          src={logo || './zoho-logo.svg'}
+          src={logo || `${import.meta.env.BASE_URL}assets/zoho-logo.svg`}
+          onError={(e) => { if (!e.currentTarget.dataset.fallback) { e.currentTarget.dataset.fallback = '1'; e.currentTarget.src = `${import.meta.env.BASE_URL}zoho-logo.svg`; } else { e.currentTarget.style.display = 'none'; } }}
           alt="Zoho"
           style={{ height: '24px', width: 'auto', opacity: 0.85 }}
         />
@@ -56,7 +57,9 @@ export function StatusScreen({
   title = 'Something went wrong loading appointment services.',
   error = '',
   onRetry = null,
-  logo = null
+  logo = null,
+  primaryColor = '#0284c7',
+  borderRadius = '14px'
 }) {
   return (
     <div
@@ -86,7 +89,8 @@ export function StatusScreen({
         }}
       >
         <img
-          src={logo || './zoho-logo.svg'}
+          src={logo || `${import.meta.env.BASE_URL}assets/zoho-logo.svg`}
+          onError={(e) => { if (!e.currentTarget.dataset.fallback) { e.currentTarget.dataset.fallback = '1'; e.currentTarget.src = `${import.meta.env.BASE_URL}zoho-logo.svg`; } else { e.currentTarget.style.display = 'none'; } }}
           alt="Zoho"
           style={{ height: '24px', width: 'auto', display: 'block' }}
         />
@@ -110,7 +114,7 @@ export function StatusScreen({
             lineHeight: 1.6
           }}
         >
-          {error || 'Unable to connect to the clinic scheduling system. Please check your connection and try again.'}
+          {error || 'Unable to connect to the appointment booking service. Please check your connection and try again.'}
         </p>
 
         {onRetry && (
@@ -119,19 +123,32 @@ export function StatusScreen({
             onClick={onRetry}
             style={{
               marginTop: '22px',
-              padding: '10px 22px',
-              background: '#0052cc',
+              padding: '11px 26px',
+              background: primaryColor,
               color: '#ffffff',
               border: 'none',
-              borderRadius: '10px',
+              borderRadius: borderRadius,
               fontWeight: 600,
               fontSize: '14px',
               cursor: 'pointer',
-              boxShadow: '0 2px 6px rgba(0,82,204,0.25)',
-              transition: 'background 0.15s ease'
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              boxShadow: `0 4px 14px ${primaryColor}35`,
+              transition: 'all 0.15s ease'
             }}
-            onMouseOver={(e) => (e.currentTarget.style.background = '#0043a8')}
-            onMouseOut={(e) => (e.currentTarget.style.background = '#0052cc')}
+            onMouseOver={(e) => {
+              e.currentTarget.style.filter = 'brightness(0.92)'
+              e.currentTarget.style.transform = 'translateY(-1px)'
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.filter = 'none'
+              e.currentTarget.style.transform = 'none'
+            }}
+            onMouseDown={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)'
+            }}
           >
             Try again
           </button>

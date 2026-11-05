@@ -1,5 +1,5 @@
 /* ──────────────────────────────────────────────────────────────────────────
-   App.css — Wellness PMS Appointment Booking Styles
+   App.css — PMS Appointment Booking Styles
    Modeled strictly after Zoho Puvi & My Desk Design System
    ────────────────────────────────────────────────────────────────────────── */
 
@@ -271,7 +271,6 @@
   min-width: min(100%, 320px);
   background: #ffffff;
   border-radius: 13px;
-  box-shadow: 0 8px 28px rgba(31, 45, 71, 0.10);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1377,14 +1376,19 @@
 .confirmation-wrap {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   max-width: 560px;
 }
 
 .confirmation-header {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.confirmation-header .wizard-card__title {
+  margin: 0;
+  line-height: 1.25;
 }
 
 .confirmation-header__subtitle {
@@ -1392,41 +1396,48 @@
   font-size: 13px;
   font-family: var(--font-regular);
   color: #64748b;
-  margin-top: 4px;
+  margin-top: 5px;
   line-height: 1.45;
 }
 
 .confirmation-ref-box {
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 5px 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  margin-top: 4px;
+  padding: 10px 18px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: 10px;
   width: fit-content;
 }
 
 .confirmation-ref-label {
-  font-size: 11.5px;
+  font-size: 11px;
   font-family: var(--font-semibold);
-  color: #64748b;
+  font-weight: 600;
+  color: #8da2bb;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
 }
 
 .confirmation-ref-code {
-  font-size: 13px;
+  font-size: 24px;
   font-family: var(--font-bold);
-  color: #0f172a;
-  letter-spacing: 0.03em;
+  font-weight: 700;
+  color: #1e3a6a;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  margin-top: 2px;
 }
 
 .confirmation-icon {
   flex: none;
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
+  margin-top: -2px;
   border-radius: 50%;
   background: transparent;
   display: flex;
@@ -1708,7 +1719,7 @@
   }
 
   .app-main {
-    padding: 16px 16px 32px !important;
+    padding: 16px 16px calc(92px + env(safe-area-inset-bottom, 0px)) !important;
     gap: 0;
     width: 100%;
     max-width: 100%;
@@ -2068,7 +2079,14 @@
   }
 
   .confirmation-ref-box {
-    margin: 10px auto 0 !important;
+    margin: 12px auto 0 !important;
+    padding: 10px 20px !important;
+    align-items: center !important;
+    text-align: center !important;
+  }
+
+  .confirmation-ref-code {
+    font-size: 22px !important;
   }
 
   .confirmation-actions {
@@ -2107,15 +2125,21 @@
     transform: scale(0.98);
   }
 
-  /* Non-sticky Scrolling Footer in Mobile */
+  /* Option 1: Pinned / Fixed Docked Footer in Mobile */
   .wizard-footer {
-    position: static !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
     width: 100% !important;
-    background: transparent !important;
-    border-top: none !important;
-    box-shadow: none !important;
-    padding: 24px 0 16px !important;
+    background: rgba(255, 255, 255, 0.96) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    backdrop-filter: blur(12px) !important;
+    border-top: 1px solid rgba(226, 232, 240, 0.9) !important;
+    box-shadow: 0 -4px 20px rgba(15, 23, 42, 0.08) !important;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)) !important;
     margin: 0 !important;
+    z-index: 9999 !important;
     display: flex !important;
     flex-direction: column !important;
     align-items: center !important;
@@ -2126,7 +2150,7 @@
   .wizard-footer__btn-row {
     display: flex !important;
     width: 100% !important;
-    max-width: 360px !important;
+    max-width: 480px !important;
     align-items: center !important;
     justify-content: center !important;
     gap: 10px !important;
@@ -2138,7 +2162,8 @@
   }
 
   .btn-primary {
-    width: 270px !important;
+    flex: 1 1 auto !important;
+    width: 100% !important;
     max-width: 100% !important;
     height: 48px !important;
     border-radius: 14px !important;

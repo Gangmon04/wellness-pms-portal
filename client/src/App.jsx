@@ -1,13 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  getPmsServices,
-  getPmsDoctors,
-  getPmsPriorities,
+  getAllPmsData,
   getPmsBookedAppointments,
   searchPmsPatient,
   createPmsAppointment,
-  getPmsHospitalInfo,
-  getPmsScheduleConfig
+  PRIMARY_CATALYST_URL
 } from './services/pmsService'
 import DateField from './components/DateField'
 import MatchCard, { patientMatchRow } from './components/MatchCard'
@@ -25,6 +22,7 @@ function getResolvedConfig() {
     // companyDetails
     if (p.get('hideHeader') === 'true') cfg.companyDetails.showHeader = false
     if (p.get('hideLogo') === 'true') cfg.companyDetails.showLogo = false
+    if (p.get('logoUrl')) cfg.companyDetails.logoUrl = p.get('logoUrl')
     if (p.get('hideCompanyName') === 'true') cfg.companyDetails.showCompanyName = false
     if (p.get('hideAddress') === 'true') cfg.companyDetails.showAddress = false
     if (p.get('hideHours') === 'true') cfg.companyDetails.showClinicHours = false
@@ -253,7 +251,7 @@ function getServiceDescription(service) {
     return 'Child healthcare, vaccinations, and pediatric growth monitoring.'
   }
   if (n.includes('gyn') || n.includes('women') || n.includes('obstet')) {
-    return 'Women’s wellness, prenatal checkups, and reproductive health.'
+    return 'Women’s health, prenatal checkups, and reproductive care.'
   }
   if (n.includes('dent') || n.includes('tooth') || n.includes('oral')) {
     return 'Dental checkups, tooth pain, cleaning, and oral care.'
@@ -274,16 +272,16 @@ function getServiceDescription(service) {
     return 'Asthma, chronic cough, lung health, and respiratory care.'
   }
   if (n.includes('gastro') || n.includes('digest') || n.includes('stomach') || n.includes('liver')) {
-    return 'Digestive wellness, acid reflux, stomach, and liver care.'
+    return 'Digestive health, acid reflux, stomach, and liver care.'
   }
   if (n.includes('endo') || n.includes('diabet') || n.includes('thyroid') || n.includes('hormone')) {
-    return 'Diabetes management, thyroid disorders, and endocrine wellness.'
+    return 'Diabetes management, thyroid disorders, and endocrine care.'
   }
   if (n.includes('onco') || n.includes('cancer')) {
     return 'Oncology evaluations, cancer screenings, and specialized therapy care.'
   }
   if (n.includes('psych') || n.includes('mental')) {
-    return 'Mental wellness, stress management, anxiety, and psychological support.'
+    return 'Mental health, stress management, anxiety, and psychological support.'
   }
   if (n.includes('physio') || n.includes('therapy') || n.includes('rehab')) {
     return 'Physical therapy, rehabilitation, muscle recovery, and pain relief.'
@@ -306,7 +304,7 @@ function getServiceDescription(service) {
 function DoctorAvatar({ doctor, isSelected, initials }) {
   const [imgError, setImgError] = useState(false)
   const imageSrc = doctor?.image || (doctor?.id
-    ? `/server/pms_appointment_service/doctor-image?id=${doctor.id}${doctor.zuid ? `&zuid=${doctor.zuid}` : ''}`
+    ? `${PRIMARY_CATALYST_URL}/doctor-image?id=${doctor.id}${doctor.zuid ? `&zuid=${doctor.zuid}` : ''}`
     : null)
   const hasImage = Boolean(portalConfig.doctors?.showDoctorPhotos !== false && imageSrc && !imgError)
 
@@ -364,8 +362,9 @@ export default function App() {
 
   // Distinct live services from Services__s (deduplicated by name)
   const displayServices = useMemo(() => {
+    const list = Array.isArray(services) ? services : []
     const map = new Map()
-    for (const s of services) {
+    for (const s of list) {
       const key = (s.name || '').trim().toLowerCase()
       if (!key) continue
       if (!map.has(key)) {
@@ -443,34 +442,35 @@ export default function App() {
     setLoadingData(true)
     setFetchError('')
 
-    Promise.all([
-      getPmsServices(),
-      getPmsDoctors(),
-      getPmsPriorities(),
-      getPmsHospitalInfo(),
-      getPmsScheduleConfig()
-    ])
-      .then(([srvList, docList, prioList, hosp, sched]) => {
-        setServices(srvList || [])
-        setDoctors(docList || [])
-        if (prioList?.length) setPriorities(prioList)
-        if (hosp) setHospitalInfo(hosp)
-        if (sched) setScheduleConfig(sched)
+    getAllPmsData()
+      .then((data) => {
+        const srvList = Array.isArray(data?.services) ? data.services : []
+        const docList = Array.isArray(data?.doctors) ? data.doctors : []
 
-        if (srvList?.length > 0) {
+        if (!data?.ok && srvList.length === 0) {
+          setFetchError(data?.error || 'Unable to load appointment services right now. Please check your connection and try again.')
+        }
+
+        setServices(srvList)
+        setDoctors(docList)
+        if (data?.priorities?.length) setPriorities(data.priorities)
+        if (data?.hospitalInfo) setHospitalInfo(data.hospitalInfo)
+        if (data?.scheduleConfig) setScheduleConfig(data.scheduleConfig)
+
+        if (srvList.length > 0) {
           const defDept = portalConfig.departments?.defaultDepartment
           const matched = defDept
             ? srvList.find((s) => String(s.id) === String(defDept) || (s.name && s.name.toLowerCase().includes(defDept.toLowerCase())))
             : null
           setSelectedServiceId(matched ? matched.id : srvList[0].id)
         }
-        if (docList?.length > 0) {
+        if (docList.length > 0) {
           setSelectedDoctorId(docList[0].id)
         }
       })
       .catch((err) => {
-        console.error('Failed to load clinic data')
-        setFetchError('Unable to load clinical departments right now. Please check your connection and try again.')
+        console.error('Failed to load appointment data', err)
+        setFetchError('Unable to load appointment services right now. Please check your connection and try again.')
       })
       .finally(() => {
         setLoadingData(false)
@@ -493,7 +493,7 @@ export default function App() {
     window.scrollTo(0, 0)
   }, [step])
 
-  // Prepopulate from URL params if provided (?first=Ganga&last=Elumalai&mobile=9876543210&email=ganga@example.com)
+  // Prepopulate from URL params if provided (?first=John&last=Doe&mobile=9876543210&email=patient@example.com)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('first')) setFirst(params.get('first'))
@@ -540,25 +540,27 @@ export default function App() {
 
   // Filter to show only doctors associated with the selected service in PMS
   const availableDoctors = useMemo(() => {
-    if (!selectedService) return doctors
+    const docList = Array.isArray(doctors) ? doctors : []
+    if (!selectedService) return docList
 
+    const members = Array.isArray(selectedService.members) ? selectedService.members : []
     const serviceMemberIds = new Set(
-      (selectedService.members || []).map((m) => String(m.id || m))
+      members.map((m) => String(m.id || m))
     )
     const serviceMemberNames = new Set(
-      (selectedService.members || []).map((m) => (m.name || '').trim().toLowerCase()).filter(Boolean)
+      members.map((m) => (m.name || '').trim().toLowerCase()).filter(Boolean)
     )
 
     if (serviceMemberIds.size === 0 && serviceMemberNames.size === 0) {
-      return doctors
+      return docList
     }
 
-    const matched = doctors.filter((d) =>
+    const matched = docList.filter((d) =>
       serviceMemberIds.has(String(d.id)) ||
       serviceMemberNames.has((d.name || '').trim().toLowerCase())
     )
 
-    return matched.length > 0 ? matched : doctors
+    return matched.length > 0 ? matched : docList
   }, [selectedService, doctors])
 
   const selectedDoctor = availableDoctors.find((d) => String(d.id) === String(selectedDoctorId)) || doctors.find((d) => String(d.id) === String(selectedDoctorId)) || null
@@ -613,7 +615,8 @@ export default function App() {
     const bhDays = bh?.business_days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
     const holidayDates = new Map()
-    for (const h of (scheduleConfig.holidays || [])) {
+    const holidays = Array.isArray(scheduleConfig?.holidays) ? scheduleConfig.holidays : []
+    for (const h of holidays) {
       const hStart = (h.date || h.start_date || h.from || '').slice(0, 10)
       if (hStart) {
         holidayDates.set(hStart, h.name || 'Clinic Holiday')
@@ -622,8 +625,9 @@ export default function App() {
 
     // Check doctor full-day leaves
     const doctorLeaveDates = new Set()
+    const unavailabilities = Array.isArray(scheduleConfig?.unavailabilities) ? scheduleConfig.unavailabilities : []
     if (selectedDoctorId) {
-      for (const u of (scheduleConfig.unavailabilities || [])) {
+      for (const u of unavailabilities) {
         const uDocId = String(u.user_id?.id || u.user_id || u.user?.id || u.user || '')
         if (uDocId && uDocId !== String(selectedDoctorId)) continue
         const uStart = (u.from || u.start_date || '').slice(0, 10)
@@ -635,9 +639,10 @@ export default function App() {
     }
 
     // Find doctor shift if any
-    const docShift = (scheduleConfig.shiftHours || []).find((s) => {
-      if (Array.isArray(s.users)) {
-        return s.users.some((u) => String(u.id || u) === String(selectedDoctorId))
+    const shiftHours = Array.isArray(scheduleConfig?.shiftHours) ? scheduleConfig.shiftHours : []
+    const docShift = shiftHours.find((s) => {
+      if (Array.isArray(s?.users)) {
+        return s.users.some((u) => String(u?.id || u) === String(selectedDoctorId))
       }
       return false
     })
@@ -717,19 +722,21 @@ export default function App() {
     const duration = Number(selectedService.duration) || 30
 
     // Find doctor shift if any
-    const docShift = (scheduleConfig.shiftHours || []).find((s) => {
-      if (Array.isArray(s.users)) {
-        return s.users.some((u) => String(u.id || u) === String(selectedDoctor.id))
+    const shiftHours = Array.isArray(scheduleConfig?.shiftHours) ? scheduleConfig.shiftHours : []
+    const docShift = shiftHours.find((s) => {
+      if (Array.isArray(s?.users)) {
+        return s.users.some((u) => String(u?.id || u) === String(selectedDoctor.id))
       }
       return false
     })
 
-    const workingBlocks = getWorkingBlocksForDate(selectedDate, scheduleConfig.businessHours, docShift)
+    const workingBlocks = getWorkingBlocksForDate(selectedDate, scheduleConfig?.businessHours, docShift)
     if (workingBlocks.length === 0) return []
 
     // Doctor partial unavailabilities for this date
     const partialLeaves = []
-    for (const u of (scheduleConfig.unavailabilities || [])) {
+    const unavailabilities = Array.isArray(scheduleConfig?.unavailabilities) ? scheduleConfig.unavailabilities : []
+    for (const u of unavailabilities) {
       const uDocId = String(u.user_id?.id || u.user_id || u.user?.id || u.user || '')
       if (uDocId && uDocId !== String(selectedDoctor.id)) continue
       const uStartStr = u.from || u.start_date || ''
@@ -779,21 +786,23 @@ export default function App() {
   // Count and filter slots by period of day
   const filterCounts = useMemo(() => {
     let morning = 0, afternoon = 0, evening = 0, night = 0
-    for (const s of slotList) {
+    const list = Array.isArray(slotList) ? slotList : []
+    for (const s of list) {
       if (s.m >= 360 && s.m < 720) morning++
       else if (s.m >= 720 && s.m < 1020) afternoon++
       else if (s.m >= 1020 && s.m < 1260) evening++
       else night++
     }
-    return { all: slotList.length, morning, afternoon, evening, night }
+    return { all: list.length, morning, afternoon, evening, night }
   }, [slotList])
 
   const displaySlots = useMemo(() => {
-    if (timeFilter === 'morning') return slotList.filter((s) => s.m >= 360 && s.m < 720)
-    if (timeFilter === 'afternoon') return slotList.filter((s) => s.m >= 720 && s.m < 1020)
-    if (timeFilter === 'evening') return slotList.filter((s) => s.m >= 1020 && s.m < 1260)
-    if (timeFilter === 'night') return slotList.filter((s) => s.m >= 1260 || s.m < 360)
-    return slotList
+    const list = Array.isArray(slotList) ? slotList : []
+    if (timeFilter === 'morning') return list.filter((s) => s.m >= 360 && s.m < 720)
+    if (timeFilter === 'afternoon') return list.filter((s) => s.m >= 720 && s.m < 1020)
+    if (timeFilter === 'evening') return list.filter((s) => s.m >= 1020 && s.m < 1260)
+    if (timeFilter === 'night') return list.filter((s) => s.m >= 1260 || s.m < 360)
+    return list
   }, [slotList, timeFilter])
 
   const selectedDateMeta = useMemo(() => {
@@ -874,7 +883,7 @@ export default function App() {
         }
 
         const result = await createPmsAppointment(payload)
-        const refId = result?.appointmentId || result?.id || 'CONFIRMED'
+        const refId = result?.appointmentNumber || result?.appointmentId || result?.id || 'CONFIRMED'
         setBookingRef(refId)
         setConfirmedAppt({
           refId,
@@ -912,7 +921,7 @@ export default function App() {
         setErrors({})
 
         setStep(5)
-        toast.success('Your appointment has been successfully confirmed!', { title: 'Booking Confirmed' })
+        toast.success('Appointment confirmed successfully!', { title: 'Booking Confirmed' })
       } catch (err) {
         console.error('Appointment booking error')
         const friendlyMsg = formatPmsErrorMessage(err.message)
@@ -1027,8 +1036,14 @@ export default function App() {
     ...(portalConfig.patientForm?.showAdditionalNotes !== false && extra.trim() ? [{ label: 'Additional info', value: extra.trim() }] : [])
   ]
 
+  const brandLogo = portalConfig.companyDetails?.logoUrl
+    ? (portalConfig.companyDetails.logoUrl.startsWith('http') || portalConfig.companyDetails.logoUrl.startsWith('/')
+        ? portalConfig.companyDetails.logoUrl
+        : `${import.meta.env.BASE_URL}${portalConfig.companyDetails.logoUrl.replace(/^\/+/, '')}`)
+    : null
+
   if (loadingData) {
-    return <LoadingScreen message="Loading appointment services…" />
+    return <LoadingScreen message="Loading appointment services…" logo={brandLogo} />
   }
 
   if (fetchError && (!services || services.length === 0)) {
@@ -1037,6 +1052,9 @@ export default function App() {
         title="Unable to load appointment services"
         error={fetchError}
         onRetry={loadData}
+        logo={brandLogo}
+        primaryColor={portalConfig.theme?.primaryColor || '#0284c7'}
+        borderRadius={portalConfig.theme?.borderRadius || '14px'}
       />
     )
   }
@@ -1048,11 +1066,11 @@ export default function App() {
         {portalConfig.companyDetails?.showHeader !== false && (
           <div className="app-header__inner">
             {portalConfig.companyDetails?.showLogo !== false && (
-              hospitalInfo?.image && !hospitalLogoError ? (
+              (brandLogo || (hospitalInfo?.image && !hospitalLogoError)) ? (
                 <div className="ph-avatar ph-avatar--image">
                   <img
-                    src={hospitalInfo.image}
-                    alt={hospitalInfo.name || 'Hospital Logo'}
+                    src={brandLogo || hospitalInfo.image}
+                    alt={hospitalInfo?.name || 'Clinic Logo'}
                     className="ph-avatar-img"
                     onError={() => setHospitalLogoError(true)}
                   />
@@ -1198,7 +1216,7 @@ export default function App() {
               </div>
             </div>
             <span className="dsk-chip dsk-chip--brand">
-              {step === 5 ? (confirmedAppt?.refId && confirmedAppt.refId !== 'CONFIRMED' ? `Confirmed · #${confirmedAppt.refId}` : 'Confirmed') : `Step ${step} of 4`}
+              {step === 5 ? 'Confirmed' : `Step ${step} of 4`}
             </span>
           </div>
 
@@ -1218,18 +1236,18 @@ export default function App() {
                 {loadingData && (
                   <div className="loading-banner">
                     <i className="ti ti-loader"></i>
-                    <span>Loading clinical departments...</span>
+                    <span>Loading appointment services...</span>
                   </div>
                 )}
 
                 {!loadingData && displayServices.length === 0 && (
                   <div className="empty-banner" style={{ padding: '36px 24px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '32px', marginBottom: '12px' }}>🩺</div>
+                    <div style={{ fontSize: '32px', marginBottom: '12px' }}>🗓️</div>
                     <div style={{ fontSize: '16px', fontWeight: 600, color: '#10151c', marginBottom: '6px' }}>
-                      No consultation services available right now
+                      No appointment services available right now
                     </div>
                     <p style={{ fontSize: '14px', color: '#667085', maxWidth: '420px', margin: '0 auto 20px', lineHeight: 1.5 }}>
-                      We couldn't retrieve the list of active clinical departments. Please check your internet connection or try refreshing.
+                      We couldn't retrieve the list of available services. Please check your internet connection or try refreshing.
                     </p>
                     <button
                       type="button"
@@ -1778,7 +1796,7 @@ export default function App() {
               <div className="confirmation-wrap">
                 <div className="confirmation-header">
                   <span className="confirmation-icon" aria-hidden="true">
-                    <svg width="46" height="46" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <svg width="42" height="42" viewBox="0 0 46 46" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <circle cx="23" cy="23" r="23" fill="#DCFCE7" />
                       <circle cx="23" cy="23" r="17" fill="#16A34A" />
                       <path
@@ -1790,20 +1808,21 @@ export default function App() {
                       />
                     </svg>
                   </span>
-                  <span className="wizard-card__title-group">
+                  <div className="wizard-card__title-group">
                     <span className="wizard-card__title">Appointment confirmed</span>
                     <span className="confirmation-header__subtitle">
                       {confirmedAppt?.serviceName || selectedService?.name} · {confirmedAppt?.doctorName || selectedDoctor?.name} · {confirmedAppt?.dateLabel || dateLabel} at {confirmedAppt?.slot || 'Scheduled time'}
                       {confirmedAppt?.patientName ? ` · Patient: ${confirmedAppt.patientName}` : ''}
                     </span>
-                    {confirmedAppt?.refId && confirmedAppt.refId !== 'CONFIRMED' && (
-                      <div className="confirmation-ref-box">
-                        <span className="confirmation-ref-label">Appointment ID</span>
-                        <span className="confirmation-ref-code">#{confirmedAppt.refId}</span>
-                      </div>
-                    )}
-                  </span>
+                  </div>
                 </div>
+
+                {confirmedAppt?.refId && confirmedAppt.refId !== 'CONFIRMED' && (
+                  <div className="confirmation-ref-box">
+                    <span className="confirmation-ref-label">APPT ID</span>
+                    <span className="confirmation-ref-code">{String(confirmedAppt.refId).replace(/^#/, '')}</span>
+                  </div>
+                )}
 
 
 

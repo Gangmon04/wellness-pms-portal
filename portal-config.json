@@ -1,4 +1,7 @@
 {
+  "catalyst": {
+    "functionName": "pms_appointment_service"
+  },
   "companyDetails": {
     "showHeader": true,
     "showLogo": true,

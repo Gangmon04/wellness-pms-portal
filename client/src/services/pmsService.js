@@ -1,14 +1,21 @@
+import portalConfig from '../../../portal-config.json';
+
+// Configurable Catalyst Function Name (from portal-config.json or .env override)
+export const FUNCTION_NAME = import.meta.env.VITE_FUNCTION_NAME 
+  || portalConfig.catalyst?.functionName 
+  || '';
+
 // Dynamic backend endpoint resolution without hardcoded project IDs or URLs
 const CLOUD_CATALYST_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_CATALYST_URL || '';
 
-// If running in browser and on a Catalyst domain, localhost, or same-origin, route to relative /server
-const PRIMARY_CATALYST_URL = (typeof window !== 'undefined' && (
+// If running in browser and on a Catalyst domain, localhost, or same-origin, route to relative /server/<FUNCTION_NAME>
+export const PRIMARY_CATALYST_URL = (typeof window !== 'undefined' && (
   window.location.hostname === 'localhost' ||
   window.location.hostname === '127.0.0.1' ||
   window.location.hostname.includes('catalystserverless') ||
   !CLOUD_CATALYST_URL
 ))
-  ? '/server/pms_appointment_service'
+  ? `/server/${FUNCTION_NAME}`
   : CLOUD_CATALYST_URL;
 
 /**
@@ -43,98 +50,96 @@ async function fetchCatalyst(path, options = {}) {
         return { ok: false, error: cData.error || cData.message || `Request failed with status ${cRes.status}`, ...cData };
       }
     } catch (cErr) {
-      if (!lastError) lastError = cErr.message;
+      lastError = cErr.message;
     }
   }
 
-  return { ok: false, error: lastError || 'Unable to connect to clinic service. Please try again.' };
+  return { ok: false, error: lastError || 'Service unavailable' };
 }
 
 /**
- * Obtain PMS OAuth token status via Catalyst Serverless token bridge (server-side managed).
+ * Normalizes doctor payload attributes.
  */
-export async function getPmsAccessToken() {
-  const cData = await fetchCatalyst('/token');
-  if (cData && cData.ok && cData.accessToken) {
-    return cData.accessToken;
-  }
-  return null;
+function normalizeDoctor(doc) {
+  if (!doc) return null;
+  const fullName = doc.fullName || doc.name || `${doc.first_name || ''} ${doc.last_name || ''}`.trim();
+  const rawId = doc.id || doc.zuid || doc.userId || doc.practitionerId;
+  return {
+    id: String(rawId),
+    name: fullName,
+    fullName: fullName,
+    email: doc.email || '',
+    phone: doc.phone || doc.mobile || '',
+    specialization: doc.specialization || doc.designation || doc.role || '',
+    medicalDegrees: doc.medicalDegrees || doc.degree || '',
+    image: doc.image || doc.photoUrl || null,
+    avatar: doc.avatar || doc.image || null,
+    zuid: doc.zuid || doc.id || null,
+    services: Array.isArray(doc.services) ? doc.services : [],
+    serviceIds: Array.isArray(doc.serviceIds) ? doc.serviceIds : []
+  };
 }
 
 /**
- * Fetch active PMS doctors/practitioners from Catalyst Serverless Function (ZRC GET).
+ * Normalizes clinical service/department payload attributes.
  */
-export async function getPmsDoctors() {
-  const cData = await fetchCatalyst('/doctors');
-  if (cData && cData.ok && Array.isArray(cData.doctors)) {
-    const basePrefix = PRIMARY_CATALYST_URL.startsWith('http')
-      ? PRIMARY_CATALYST_URL.replace(/\/server\/pms_appointment_service.*$/, '')
-      : '';
-    return cData.doctors.map((d) => ({
-      ...d,
-      medicalDegrees: d.medicalDegrees || d.Medical_Degrees || d.qualification || '',
-      image: d.image?.startsWith('/') && basePrefix ? `${basePrefix}${d.image}` : d.image
-    }));
-  }
+function normalizeService(srv) {
+  if (!srv) return null;
+  return {
+    id: String(srv.id),
+    name: srv.name || srv.serviceName || 'General Consultation',
+    duration: srv.duration ? Number(srv.duration) : 30,
+    price: srv.price !== undefined ? Number(srv.price) : 0,
+    description: srv.description || '',
+    members: Array.isArray(srv.members) ? srv.members : [],
+    memberIds: Array.isArray(srv.memberIds) ? srv.memberIds : [],
+    doctorCount: Array.isArray(srv.members) ? srv.members.length : (srv.doctorCount || 0)
+  };
+}
 
-  if (cData?.error) {
-    throw new Error(cData.error);
+// ─── Exported Service Functions ──────────────────────────────────────────────
+
+export const getPmsHospitalDetails = () => fetchCatalyst('/hospital');
+export const getPmsHospitalInfo = async () => {
+  const res = await fetchCatalyst('/hospital');
+  return res.ok && res.hospital ? res.hospital : null;
+};
+
+export const getPmsDoctors = async () => {
+  const res = await fetchCatalyst('/doctors');
+  if (res.ok && Array.isArray(res.doctors)) {
+    return res.doctors.map(normalizeDoctor).filter(Boolean);
   }
   return [];
-}
+};
 
-/**
- * Fetch live PMS Services from Services__s module in PMS via Catalyst Serverless Function (ZRC COQL).
- */
-export async function getPmsServices() {
-  const cData = await fetchCatalyst('/services');
-  if (cData && cData.ok && Array.isArray(cData.services)) {
-    return cData.services;
-  }
-  if (cData?.error) {
-    throw new Error(cData.error);
+export const getPmsServices = async () => {
+  const res = await fetchCatalyst('/services');
+  const arr = res.services || res.departments;
+  if (res.ok && Array.isArray(arr)) {
+    return arr.map(normalizeService).filter(Boolean);
   }
   return [];
-}
+};
 
 export const getPmsDepartments = getPmsServices;
 
-/**
- * Fetch dynamic Hospital / Clinic info from PMS via Catalyst Serverless Function (ZRC App_Settings & Org Photo).
- */
-export async function getPmsHospitalInfo() {
-  const cData = await fetchCatalyst('/hospital');
-  if (cData && cData.ok && cData.hospital) {
-    return cData.hospital;
+export const getPmsPriorities = async () => {
+  const res = await fetchCatalyst('/priorities');
+  if (res.ok && Array.isArray(res.priorities)) {
+    return res.priorities;
   }
-  return null;
-}
+  return ['Routine', 'Urgent'];
+};
 
-/**
- * Search Patient in PMS by 10-digit mobile number via Catalyst Serverless Function (ZRC COQL).
- */
-export async function searchPmsPatient(mobileNumber) {
-  const cleanMobile = String(mobileNumber).replace(/\D/g, '').slice(-10);
-  if (!cleanMobile) return null;
-
-  const cData = await fetchCatalyst(`/patient/search?mobile=${encodeURIComponent(cleanMobile)}`);
-  if (cData && cData.found && cData.patient) {
-    return cData.patient;
-  }
-  return null;
-}
-
-/**
- * Fetch live schedule configuration from Zoho PMS CRM (Business Hours, Holidays, Unavailability, Shift Hours via ZRC).
- */
-export async function getPmsScheduleConfig() {
-  const cData = await fetchCatalyst('/schedule-config');
-  if (cData && cData.ok) {
+export const getPmsScheduleConfig = async () => {
+  const res = await fetchCatalyst('/schedule-config');
+  if (res.ok) {
     return {
-      businessHours: cData.businessHours || null,
-      holidays: cData.holidays || [],
-      unavailabilities: cData.unavailabilities || [],
-      shiftHours: cData.shiftHours || []
+      businessHours: res.businessHours || null,
+      holidays: Array.isArray(res.holidays) ? res.holidays : [],
+      unavailabilities: Array.isArray(res.unavailabilities) ? res.unavailabilities : [],
+      shiftHours: Array.isArray(res.shiftHours) ? res.shiftHours : []
     };
   }
   return {
@@ -143,90 +148,108 @@ export async function getPmsScheduleConfig() {
     unavailabilities: [],
     shiftHours: []
   };
-}
+};
 
-/**
- * Fetch already booked slots for a specific date and doctor via Catalyst Serverless Function (ZRC COQL).
- */
-export async function getPmsBookedAppointments(dateStr, doctorId) {
-  if (!dateStr) return [];
-
-  const docParam = doctorId ? `&doctorId=${encodeURIComponent(doctorId)}` : '';
-  const cData = await fetchCatalyst(`/booked-slots?date=${encodeURIComponent(dateStr)}${docParam}`);
-  if (cData && Array.isArray(cData.booked)) {
-    return cData.booked.map(r => {
-      const d = new Date(r.startTime);
-      const hours = d.getHours();
-      const minutes = d.getMinutes();
-      const isPM = hours >= 12;
-      const displayHours = hours % 12 === 0 ? 12 : hours % 12;
-      return `${String(displayHours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${isPM ? 'PM' : 'AM'}`;
-    });
+export const getPmsBookedAppointments = async (date, doctorId) => {
+  if (!date) return [];
+  const params = new URLSearchParams({ date });
+  if (doctorId) params.append('doctorId', doctorId);
+  const res = await fetchCatalyst(`/booked-slots?${params.toString()}`);
+  if (res.ok && Array.isArray(res.booked)) {
+    return res.booked
+      .map(slot => {
+        if (!slot.startTime) return null;
+        try {
+          const d = new Date(slot.startTime);
+          const hours = d.getHours();
+          const mins = d.getMinutes();
+          const period = hours >= 12 ? 'PM' : 'AM';
+          const h = hours % 12 || 12;
+          const padM = String(mins).padStart(2, '0');
+          return `${h}:${padM} ${period}`;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
   }
   return [];
-}
+};
 
-/**
- * Fetch Priority picklist values dynamically from Catalyst Serverless Function.
- */
-export async function getPmsPriorities() {
-  const cData = await fetchCatalyst('/priorities');
-  if (cData && cData.ok && Array.isArray(cData.priorities)) {
-    return cData.priorities;
+export const getPmsDoctorImageUrl = (id, zuid) => {
+  const params = new URLSearchParams();
+  if (id) params.append('id', id);
+  if (zuid) params.append('zuid', zuid);
+  return `${PRIMARY_CATALYST_URL}/doctor-image?${params.toString()}`;
+};
+
+export const searchPmsPatient = async (mobile) => {
+  const cleanMobile = String(mobile || '').replace(/\D/g, '').slice(-10);
+  if (cleanMobile.length !== 10) return null;
+  const res = await fetchCatalyst(`/patient/search?mobile=${cleanMobile}`);
+  if (res.ok && res.found && res.patient) {
+    return res.patient;
   }
-  return ['Routine', 'Urgent', 'ASAP', 'STAT'];
-}
+  return null;
+};
 
-/**
- * Book a new appointment in Appointments__s module in PMS via Catalyst Serverless Function (ZRC POST).
- */
-export async function createPmsAppointment({
-  firstName = '',
-  lastName = '',
-  patientName = '',
-  mobileNumber = '',
-  doctorId = '',
-  doctor = null,
-  departmentId = '',
-  department = null,
-  service = null,
-  duration = 30,
-  visitDate = '',
-  startTime = '',
-  priority = 'Routine',
-  appointmentName = '',
-  matchedPatientId = null,
-  patient = null,
-  chiefComplaint = '',
-  additionalInfo = ''
-}) {
-  const resolvedFullName = (patientName || `${firstName} ${lastName}`).trim();
-
-  // Route exclusively via Catalyst Serverless Function which executes ZRC / COQL server-side
-  const cData = await fetchCatalyst('/book-appointment', {
+export const createPmsAppointment = (appointmentData) => {
+  return fetchCatalyst('/book-appointment', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      firstName,
-      lastName,
-      patientName: resolvedFullName,
-      mobileNumber,
-      matchedPatientId: matchedPatientId || patient?.id || null,
-      doctor: doctor || (doctorId ? { id: doctorId } : null),
-      department: department || (departmentId ? { id: departmentId } : null),
-      service: service || department,
-      duration,
-      visitDate,
-      startTime,
-      priority,
-      appointmentName,
-      chiefComplaint: chiefComplaint || additionalInfo
-    })
+    body: JSON.stringify(appointmentData)
+  });
+};
+
+export const checkPmsHealth = () => fetchCatalyst('/');
+
+export const getAllPmsData = async () => {
+  const [hRes, dRes, sRes, scRes, pRes] = await Promise.all([
+    fetchCatalyst('/hospital'),
+    fetchCatalyst('/doctors'),
+    fetchCatalyst('/services'),
+    fetchCatalyst('/schedule-config'),
+    fetchCatalyst('/priorities')
+  ]);
+
+  const hasFailed = !sRes.ok && !dRes.ok;
+  const errorMsg = sRes.error || dRes.error || hRes.error || null;
+
+  const rawDocs = dRes.ok && Array.isArray(dRes.doctors) ? dRes.doctors : [];
+  const rawServices = sRes.ok && Array.isArray(sRes.services || sRes.departments) ? (sRes.services || sRes.departments) : [];
+
+  const doctors = rawDocs.map(normalizeDoctor).filter(Boolean);
+  const departments = rawServices.map(normalizeService).filter(Boolean);
+
+  // Cross-reference doctors with department assignments
+  departments.forEach(dept => {
+    if (dept.memberIds && dept.memberIds.length > 0) {
+      dept.doctors = doctors.filter(doc => dept.memberIds.includes(doc.id));
+      dept.doctorCount = dept.doctors.length;
+    } else {
+      dept.doctors = doctors;
+      dept.doctorCount = doctors.length;
+    }
   });
 
-  if (cData && cData.ok) {
-    return cData;
-  }
-
-  throw new Error(cData?.error || 'Unable to confirm your appointment at this time. Please try again.');
-}
+  return {
+    ok: !hasFailed,
+    error: hasFailed ? (errorMsg || 'Unable to load appointment services right now. Please check your connection and try again.') : null,
+    hospitalInfo: hRes.ok && hRes.hospital ? hRes.hospital : null,
+    doctors,
+    services: departments,
+    departments,
+    scheduleConfig: scRes.ok ? {
+      businessHours: scRes.businessHours || null,
+      holidays: Array.isArray(scRes.holidays) ? scRes.holidays : [],
+      unavailabilities: Array.isArray(scRes.unavailabilities) ? scRes.unavailabilities : [],
+      shiftHours: Array.isArray(scRes.shiftHours) ? scRes.shiftHours : []
+    } : {
+      businessHours: null,
+      holidays: [],
+      unavailabilities: [],
+      shiftHours: []
+    },
+    priorities: pRes.ok && Array.isArray(pRes.priorities) ? pRes.priorities : ['Routine', 'Urgent']
+  };
+};

@@ -450,12 +450,37 @@ async function createAppointment(body = {}) {
 	}
 
 	if (result?.code === 'SUCCESS') {
+		const createdRecordId = result.details?.id;
+		let autoNumber = null;
+
+		// Fetch newly created record from CRM to get the auto-generated Appointment ID (e.g. "APPT-147")
+		if (createdRecordId) {
+			try {
+				const fetchRes = await zrc.get(`/crm/v8/${MODULES.APPOINTMENTS}/${createdRecordId}`);
+				const createdData = fetchRes.data?.data?.[0];
+				if (createdData) {
+					autoNumber = createdData[APPOINTMENT_FIELDS.APPOINTMENT_ID] ||
+						createdData.Appointment_ID ||
+						createdData.Appointment_Number ||
+						createdData.Appointment_No ||
+						createdData.Auto_Number ||
+						null;
+				}
+			} catch (fetchErr) {
+				console.warn('Could not fetch created appointment auto-number:', fetchErr.message);
+			}
+		}
+
+		const resolvedAppointmentId = autoNumber || createdRecordId;
+
 		return {
 			status: 200,
 			data: {
 				ok: true,
-				appointmentId: result.details?.id,
-				id: result.details?.id,
+				appointmentId: resolvedAppointmentId,
+				appointmentNumber: autoNumber || null,
+				recordId: createdRecordId,
+				id: resolvedAppointmentId,
 				appointmentName: appointmentRecord.Appointment_Name,
 				appointmentFor: apptFor,
 				isProspect: !!apptFor.isProspect,
