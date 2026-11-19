@@ -41,7 +41,8 @@ const zrc = {
 
 		const fetchOpts = {
 			method: method.toUpperCase(),
-			headers
+			headers,
+			signal: AbortSignal.timeout(10000)
 		};
 
 		if (body && ['POST', 'PUT', 'PATCH'].includes(fetchOpts.method)) {
@@ -114,12 +115,12 @@ const zrc = {
 			...(options.headers || {})
 		};
 
-		let res = await fetch(url, { method: 'GET', headers });
+		let res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(8000) });
 		if (res.status === 401) {
 			clearAccessToken();
 			token = await getAccessToken();
 			headers['Authorization'] = `Zoho-oauthtoken ${token}`;
-			res = await fetch(url, { method: 'GET', headers });
+			res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(8000) });
 		}
 		return res;
 	}

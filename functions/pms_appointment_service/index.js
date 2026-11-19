@@ -42,6 +42,25 @@ module.exports = async (req, res) => {
 	try {
 		// Route dispatching & service calls
 
+		// GET /all-data (Consolidated single-roundtrip endpoint for all bootstrap data)
+		if (req.method === 'GET' && pathname.endsWith('/all-data')) {
+			const [hospital, doctors, services, scheduleConfig] = await Promise.all([
+				getHospitalDetails().catch(() => null),
+				getDoctorsList().catch(() => []),
+				getServicesList().catch(() => []),
+				getScheduleConfiguration().catch(() => ({ businessHours: null, holidays: [], unavailabilities: [], shiftHours: [] }))
+			]);
+			return sendJson(res, 200, {
+				ok: true,
+				hospital,
+				doctors,
+				departments: services,
+				services,
+				...scheduleConfig,
+				priorities: getPriorities()
+			}, req);
+		}
+
 		// GET /hospital/logo (Streams hospital logo binary)
 		if (req.method === 'GET' && pathname.endsWith('/hospital/logo')) {
 			return streamHospitalLogo(res, req);

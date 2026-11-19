@@ -171,6 +171,7 @@ async function getDoctors(doctorZuidCache = defaultDoctorZuidCache) {
 				medicalDegrees: medicalDegrees || '',
 				department: u.Department || '',
 				specialization: u.Specialization || '',
+				currentShift: u.Current_Shift__s || u.current_shift || u.shift || null,
 				zuid,
 				image
 			};
@@ -226,7 +227,7 @@ async function getServices() {
 	if (services.length === 0) {
 		const pmsRes = await zrc.get(`/crm/v8/${MODULES.SERVICES}`, {
 			params: {
-				fields: `${SERVICE_FIELDS.ID},${SERVICE_FIELDS.SERVICE_NAME},${SERVICE_FIELDS.DURATION},${SERVICE_FIELDS.DESCRIPTION},${SERVICE_FIELDS.PRICE},${SERVICE_FIELDS.STATUS},${SERVICE_FIELDS.LOCATION}`,
+				fields: `${SERVICE_FIELDS.ID},${SERVICE_FIELDS.SERVICE_NAME},${SERVICE_FIELDS.DURATION},${SERVICE_FIELDS.DESCRIPTION},${SERVICE_FIELDS.PRICE},${SERVICE_FIELDS.STATUS},${SERVICE_FIELDS.LOCATION},${SERVICE_FIELDS.MEMBERS}`,
 				per_page: 100
 			}
 		});
@@ -236,16 +237,10 @@ async function getServices() {
 		}
 
 		const rawList = pmsRes.data?.data || [];
-		services = await Promise.all(rawList.map(async s => {
-			let members = [];
-			try {
-				const dRes = await zrc.get(`/crm/v8/${MODULES.SERVICES}/${s.id}`);
-				members = extractServiceMembers(dRes.data?.data?.[0]?.Members);
-			} catch (mErr) {
-				console.warn('Could not fetch Members for service');
-			}
+		services = rawList.map(s => {
+			const members = extractServiceMembers(s[SERVICE_FIELDS.MEMBERS] || s.Members);
 			return formatServiceItem(s, members);
-		}));
+		});
 	}
 
 	return services;

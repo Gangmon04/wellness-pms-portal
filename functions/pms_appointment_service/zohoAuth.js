@@ -131,7 +131,8 @@ async function getAccessToken() {
 
 			const res = await fetch(ZOHO_TOKEN_URL, {
 				method: 'POST',
-				body: params
+				body: params,
+				signal: AbortSignal.timeout(8000)
 			});
 
 			const rawText = await res.text();

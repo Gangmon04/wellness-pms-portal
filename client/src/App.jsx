@@ -122,6 +122,75 @@ function formatClinicHours(bh) {
   return '24 Hours'
 }
 
+function findDoctorShift(doctor, shiftHours) {
+  if (!doctor || !Array.isArray(shiftHours) || shiftHours.length === 0) return null
+  const docId = String(doctor.id || doctor.zuid || '')
+  const docEmail = doctor.email ? String(doctor.email).trim().toLowerCase() : ''
+  const docShiftName = typeof doctor.currentShift === 'string'
+    ? doctor.currentShift.trim().toLowerCase()
+    : (doctor.currentShift?.name || '').trim().toLowerCase()
+  const docShiftId = doctor.currentShift?.id ? String(doctor.currentShift.id) : null
+
+  return shiftHours.find((s) => {
+    if (!s) return false
+    // 1. Check user list in shift (by user ID or email)
+    if (Array.isArray(s?.users) && s.users.length > 0) {
+      const match = s.users.some((u) => {
+        const uId = String(u?.id || u)
+        const uEmail = (u?.email ? String(u.email) : '').trim().toLowerCase()
+        return (uId && uId === docId) || (docEmail && uEmail && uEmail === docEmail)
+      })
+      if (match) return true
+    }
+    // 2. Check shift ID match
+    if (docShiftId && String(s.id) === docShiftId) {
+      return true
+    }
+    // 3. Check shift name match
+    if (docShiftName && String(s.name || '').trim().toLowerCase() === docShiftName) {
+      return true
+    }
+    return false
+  }) || null
+}
+
+function getShiftBreakHours(doctorShift, dayName) {
+  if (!doctorShift || !Array.isArray(doctorShift.break_hours)) return []
+  const breaks = []
+  for (const b of doctorShift.break_hours) {
+    if (!b) continue
+    const bDays = b.break_days || b.shift_days || b.days || []
+    const isBreakDay = b.same_as_everyday === true || bDays.length === 0 || bDays.includes(dayName)
+    if (!isBreakDay) continue
+    const timing = b.daily_timing || b.timing || b.break_timing
+    if (Array.isArray(timing) && timing.length >= 2) {
+      const bmStart = parseTimeToMins(timing[0])
+      let bmEnd = parseTimeToMins(timing[1])
+      if (bmEnd === 0 || timing[1]?.includes('12:00 AM') || timing[1] === '24:00') {
+        bmEnd = 1440
+      }
+      if (bmStart !== null && bmEnd !== null && bmEnd > bmStart) {
+        breaks.push([bmStart, bmEnd])
+      }
+    }
+    if (Array.isArray(b.custom_timing)) {
+      const ct = b.custom_timing.find(c => c.days === dayName || c.days?.includes(dayName) || c.day === dayName)
+      const cTiming = ct?.daily_timing || ct?.timing || ct?.break_timing
+      if (Array.isArray(cTiming) && cTiming.length >= 2) {
+        const bmStart = parseTimeToMins(cTiming[0])
+        let bmEnd = parseTimeToMins(cTiming[1])
+        if (bmEnd === 0 || cTiming[1]?.includes('12:00 AM') || cTiming[1] === '24:00') {
+          bmEnd = 1440
+        }
+        if (bmStart !== null && bmEnd !== null && bmEnd > bmStart) {
+          breaks.push([bmStart, bmEnd])
+        }
+      }
+    }
+  }
+  return breaks
+}
+
 function getWorkingBlocksForDate(dateStr, businessHours, doctorShift) {
   if (!dateStr) return []
   const dt = new Date(`${dateStr}T12:00:00`)
@@ -129,7 +198,7 @@ function getWorkingBlocksForDate(dateStr, businessHours, doctorShift) {
 
   // 1. Check doctor's specific shift hours if assigned
   if (doctorShift) {
-    const shiftDays = doctorShift.business_days || doctorShift.days || []
+    const shiftDays = doctorShift.shift_days || doctorShift.business_days || doctorShift.days || []
     if (shiftDays.length === 0 || shiftDays.includes(dayName)) {
       if (Array.isArray(doctorShift.daily_timing) && doctorShift.daily_timing.length >= 2) {
         const startM = parseTimeToMins(doctorShift.daily_timing[0])
@@ -142,8 +211,8 @@ function getWorkingBlocksForDate(dateStr, businessHours, doctorShift) {
         }
       }
       if (Array.isArray(doctorShift.custom_timing)) {
-        const ct = doctorShift.custom_timing.find(c => c.days === dayName || c.days?.includes(dayName))
-        const timing = ct?.daily_timing || ct?.timing || ct?.business_timing
+        const ct = doctorShift.custom_timing.find(c => c.days === dayName || c.days?.includes(dayName) || c.day === dayName)
+        const timing = ct?.daily_timing || ct?.timing || ct?.business_timing || ct?.shift_timing
         if (Array.isArray(timing) && timing.length >= 2) {
           const startM = parseTimeToMins(timing[0])
           let endM = parseTimeToMins(timing[1])
@@ -639,13 +708,9 @@ export default function App() {
     }
 
     // Find doctor shift if any
+    const selectedDoc = doctors.find((d) => String(d.id) === String(selectedDoctorId)) || null
     const shiftHours = Array.isArray(scheduleConfig?.shiftHours) ? scheduleConfig.shiftHours : []
-    const docShift = shiftHours.find((s) => {
-      if (Array.isArray(s?.users)) {
-        return s.users.some((u) => String(u?.id || u) === String(selectedDoctorId))
-      }
-      return false
-    })
+    const docShift = findDoctorShift(selectedDoc, shiftHours)
 
     // Generate dates covering at least 21 days, or extending if selectedDate is further ahead
     let daysCount = 21
@@ -661,7 +726,7 @@ export default function App() {
       const dt = new Date(today.getTime() + i * 86400000)
       const key = iso(dt)
       const dayName = DAY_NAMES[dt.getDay()]
-      const isClosedDay = !bhDays.includes(dayName)
+      const isClosedDay = docShift ? false : !bhDays.includes(dayName)
       const holidayName = holidayDates.get(key)
       const isDoctorLeave = doctorLeaveDates.has(key)
 
@@ -672,8 +737,21 @@ export default function App() {
       // For today: check if all possible slots have already passed
       let allSlotsPassed = false
       if (key === todayKey) {
-        const latestSlotStart = blocks.reduce((max, [start, end]) => Math.max(max, end - 30), 0)
-        if (nowMinutes >= latestSlotStart || blocks.length === 0) {
+        const shiftBreaks = getShiftBreakHours(docShift, dayName)
+        let hasFutureSlot = false
+        for (const [start, end] of blocks) {
+          for (let m = start; m + 30 <= end; m += 30) {
+            if (m > nowMinutes) {
+              const inBreak = shiftBreaks.some(([bf, bt]) => m < bt && m + 30 > bf)
+              if (!inBreak) {
+                hasFutureSlot = true
+                break
+              }
+            }
+          }
+          if (hasFutureSlot) break
+        }
+        if (!hasFutureSlot || blocks.length === 0) {
           allSlotsPassed = true
         }
       }
@@ -723,15 +801,14 @@ export default function App() {
 
     // Find doctor shift if any
     const shiftHours = Array.isArray(scheduleConfig?.shiftHours) ? scheduleConfig.shiftHours : []
-    const docShift = shiftHours.find((s) => {
-      if (Array.isArray(s?.users)) {
-        return s.users.some((u) => String(u?.id || u) === String(selectedDoctor.id))
-      }
-      return false
-    })
+    const docShift = findDoctorShift(selectedDoctor, shiftHours)
 
     const workingBlocks = getWorkingBlocksForDate(selectedDate, scheduleConfig?.businessHours, docShift)
     if (workingBlocks.length === 0) return []
+
+    const dt = new Date(`${selectedDate}T12:00:00`)
+    const dayName = DAY_NAMES[dt.getDay()]
+    const shiftBreaks = getShiftBreakHours(docShift, dayName)
 
     // Doctor partial unavailabilities for this date
     const partialLeaves = []
@@ -766,9 +843,10 @@ export default function App() {
         const label = hhmm(m)
         const isBooked = bookedSlots.includes(label)
         const isOnLeave = partialLeaves.some(([lf, lt]) => m < lt && m + duration > lf)
+        const isInBreak = shiftBreaks.some(([bf, bt]) => m < bt && m + duration > bf)
 
-        // If slot falls during doctor leave, skip it so it is not shown as strikethrough
-        if (isOnLeave) {
+        // If slot falls during doctor leave or break, skip it so it is not shown
+        if (isOnLeave || isInBreak) {
           continue
         }
 

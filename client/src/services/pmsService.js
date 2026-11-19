@@ -72,6 +72,7 @@ function normalizeDoctor(doc) {
     phone: doc.phone || doc.mobile || '',
     specialization: doc.specialization || doc.designation || doc.role || '',
     medicalDegrees: doc.medicalDegrees || doc.degree || '',
+    currentShift: doc.currentShift || null,
     image: doc.image || doc.photoUrl || null,
     avatar: doc.avatar || doc.image || null,
     zuid: doc.zuid || doc.id || null,
@@ -204,6 +205,43 @@ export const createPmsAppointment = (appointmentData) => {
 export const checkPmsHealth = () => fetchCatalyst('/');
 
 export const getAllPmsData = async () => {
+  // Fast path: Single consolidated round-trip endpoint
+  const allRes = await fetchCatalyst('/all-data');
+  if (allRes.ok) {
+    const rawDocs = Array.isArray(allRes.doctors) ? allRes.doctors : [];
+    const rawServices = Array.isArray(allRes.services || allRes.departments) ? (allRes.services || allRes.departments) : [];
+
+    const doctors = rawDocs.map(normalizeDoctor).filter(Boolean);
+    const departments = rawServices.map(normalizeService).filter(Boolean);
+
+    departments.forEach(dept => {
+      if (dept.memberIds && dept.memberIds.length > 0) {
+        dept.doctors = doctors.filter(doc => dept.memberIds.includes(doc.id));
+        dept.doctorCount = dept.doctors.length;
+      } else {
+        dept.doctors = doctors;
+        dept.doctorCount = doctors.length;
+      }
+    });
+
+    return {
+      ok: true,
+      error: null,
+      hospitalInfo: allRes.hospital || null,
+      doctors,
+      services: departments,
+      departments,
+      scheduleConfig: {
+        businessHours: allRes.businessHours || null,
+        holidays: Array.isArray(allRes.holidays) ? allRes.holidays : [],
+        unavailabilities: Array.isArray(allRes.unavailabilities) ? allRes.unavailabilities : [],
+        shiftHours: Array.isArray(allRes.shiftHours) ? allRes.shiftHours : []
+      },
+      priorities: Array.isArray(allRes.priorities) ? allRes.priorities : ['Routine', 'Urgent']
+    };
+  }
+
+  // Fallback path: Independent endpoints if /all-data is not supported
   const [hRes, dRes, sRes, scRes, pRes] = await Promise.all([
     fetchCatalyst('/hospital'),
     fetchCatalyst('/doctors'),
