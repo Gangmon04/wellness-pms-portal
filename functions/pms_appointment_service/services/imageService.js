@@ -77,83 +77,46 @@ async function lookupUserZuid(id) {
 }
 
 /**
- * Fetches doctor photo with memory caching and multi-tier fallbacks:
- * 1. profile.zoho.in (authenticated via ZRC)
- * 2. profile.zoho.in (unauthenticated)
- * 3. contacts.zoho.in (unauthenticated)
- * 4. CRM /crm/v8/users/{id}/photo
+ * Fetches doctor photo with memory caching and direct CRM endpoint:
+ * 1. CRM /crm/v8/users/{id}/photo
+ * 2. Cached misses for 60s to prevent repeated slow roundtrips
  */
 async function getDoctorImage(id, zuid) {
 	if (!id && !zuid) return null;
 
 	const cacheKey = String(id || zuid);
 	const cached = doctorImageCache.get(cacheKey);
-	if (cached && (Date.now() - cached.time < CACHE_CONFIG.DOCTOR_IMAGE_TTL_MS)) {
+	if (cached && cached.buffer && (Date.now() - cached.time < CACHE_CONFIG.DOCTOR_IMAGE_TTL_MS)) {
 		return {
 			buffer: cached.buffer,
 			contentType: cached.contentType
 		};
 	}
 
-	let targetZuid = zuid || doctorZuidCache.get(String(id)) || null;
-
-	if (!targetZuid && id) {
-		targetZuid = await lookupUserZuid(id);
+	if (cached && cached.missUntil && Date.now() < cached.missUntil) {
+		return null;
 	}
 
-	let imgRes = null;
-
-	// 1. Try profile.zoho.in with OAuth token
-	if (targetZuid) {
+	// 1. Try official CRM User Photo endpoint with fast fail (under 3s)
+	if (id) {
 		try {
-			imgRes = await zrc.getRaw(`${ZOHO_PROFILE_URL}/file?ID=${targetZuid}&fs=thumb`);
-		} catch (cErr) {
-			console.warn('Profile fetch error');
-		}
-	}
-
-	// 2. Try profile.zoho.in without OAuth token
-	if ((!imgRes || !imgRes.ok) && targetZuid) {
-		try {
-			imgRes = await fetch(`${ZOHO_PROFILE_URL}/file?ID=${targetZuid}&fs=thumb`);
-		} catch (cErr) {}
-	}
-
-	// 3. Fallback to contacts.zoho.in
-	if ((!imgRes || !imgRes.ok) && targetZuid) {
-		try {
-			imgRes = await fetch(`${ZOHO_CONTACTS_URL}/file?ID=${targetZuid}&fs=thumb`);
-		} catch (cErr) {}
-	}
-
-	// 4. Try CRM user photo endpoint via ZRC raw
-	if ((!imgRes || !imgRes.ok) && id) {
-		try {
-			imgRes = await zrc.getRaw(`/crm/v8/${MODULES.USERS}/${id}/photo`);
+			const pRes = await zrc.getRaw(`/crm/v8/${MODULES.USERS}/${id}/photo`, { timeout: 3000 });
+			if (pRes && pRes.ok) {
+				const contentType = (pRes.headers.get('content-type') || 'image/jpeg').split(';')[0];
+				const arrayBuf = await pRes.arrayBuffer();
+				const buffer = Buffer.from(arrayBuf);
+				if (buffer.length > 0) {
+					doctorImageCache.set(cacheKey, { buffer, contentType, time: Date.now() });
+					return { buffer, contentType };
+				}
+			}
 		} catch (pErr) {
-			console.warn('CRM photo fetch error');
+			console.warn(`Could not fetch CRM photo for user ${id}`);
 		}
 	}
 
-	if (imgRes && imgRes.ok) {
-		const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-		const arrayBuf = await imgRes.arrayBuffer();
-		const buffer = Buffer.from(arrayBuf);
-
-		if (buffer.length > 0) {
-			doctorImageCache.set(cacheKey, {
-				buffer,
-				contentType,
-				time: Date.now()
-			});
-
-			return {
-				buffer,
-				contentType
-			};
-		}
-	}
-
+	// 2. Cache miss for 60s so subsequent requests return in 0ms without re-querying
+	doctorImageCache.set(cacheKey, { missUntil: Date.now() + (60 * 1000), time: Date.now() });
 	return null;
 }
 

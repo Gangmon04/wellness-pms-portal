@@ -427,9 +427,19 @@ function getServiceDescription(service) {
 
 function DoctorAvatar({ doctor, isSelected, initials }) {
   const [imgError, setImgError] = useState(false)
-  const imageSrc = doctor?.image || (doctor?.id
-    ? `${PRIMARY_CATALYST_URL}/doctor-image?id=${doctor.id}${doctor.zuid ? `&zuid=${doctor.zuid}` : ''}`
-    : null)
+  const rawImage = doctor?.image
+  let imageSrc = null
+  if (rawImage && (rawImage.startsWith('http://') || rawImage.startsWith('https://') || rawImage.startsWith('data:'))) {
+    if (rawImage.includes('profile.zoho.') || rawImage.includes('contacts.zoho.')) {
+      imageSrc = doctor?.id ? `${PRIMARY_CATALYST_URL}/doctor-image?id=${doctor.id}${doctor.zuid ? `&zuid=${doctor.zuid}` : ''}` : null
+    } else {
+      imageSrc = rawImage
+    }
+  } else if (rawImage && rawImage.startsWith('/')) {
+    imageSrc = `${PRIMARY_CATALYST_URL}${rawImage.replace(/^\/server\/pms_appointment_service/, '')}`
+  } else if (doctor?.id) {
+    imageSrc = `${PRIMARY_CATALYST_URL}/doctor-image?id=${doctor.id}${doctor.zuid ? `&zuid=${doctor.zuid}` : ''}`
+  }
   const hasImage = Boolean(portalConfig.doctors?.showDoctorPhotos !== false && imageSrc && !imgError)
 
   return (

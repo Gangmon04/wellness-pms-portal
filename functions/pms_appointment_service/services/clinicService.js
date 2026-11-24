@@ -161,7 +161,7 @@ async function getDoctors(doctorZuidCache = defaultDoctorZuidCache) {
 			if (u.id && zuid && doctorZuidCache) {
 				doctorZuidCache.set(String(u.id), String(zuid));
 			}
-			const image = u.image_link || (zuid ? `${ZOHO_PROFILE_URL}/file?ID=${zuid}&fs=thumb` : `/server/pms_appointment_service/doctor-image?id=${u.id}`);
+			const image = `/server/pms_appointment_service/doctor-image?id=${u.id}${zuid ? `&zuid=${zuid}` : ''}`;
 			const medicalDegrees = u.Medical_Degrees || u.medical_degrees || u.qualification || '';
 			return {
 				id: u.id,
