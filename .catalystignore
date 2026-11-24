@@ -10,4 +10,5 @@ client/**/.env.*
 scratch/
 test/
 **/*.tmp
-make 
+build.ps1
+*.zip

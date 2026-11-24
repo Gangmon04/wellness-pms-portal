@@ -1,11 +1,16 @@
-{
-	"deployment": {
-		"name": "pms_appointment_service",
-		"stack": "node20",
-		"type": "advancedio",
-		"env_variables": {}
-	},
-	"execution": {
-		"main": "index.js"
-	}
+﻿{
+    "deployment":  {
+                       "name":  "pms_appointment_service",
+                       "stack":  "node20",
+                       "type":  "advancedio",
+                       "env_variables":  {
+                                             "ALLOWED_ORIGINS":  "https://aradhanaclinic.com,https://www.aradhanaclinic.com",
+                                             "SCOPES":  "Solution.org.ALL,Solution.coql.READ,Solution.settings.ALL,Solution.modules.ALL,Solution.users.ALL",
+                                             "BREAK_START":  "16:30",
+                                             "BREAK_END":  "18:00"
+                                         }
+                   },
+    "execution":  {
+                      "main":  "index.js"
+                  }
 }

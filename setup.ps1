@@ -54,6 +54,12 @@ $RequiredEnvVariables = [ordered]@{
     SCOPES        = "Solution.org.ALL,Solution.coql.READ,Solution.settings.ALL,Solution.modules.ALL,Solution.users.ALL"
 }
 
+$OptionalEnvVariables = [ordered]@{
+    ALLOWED_ORIGINS = ""
+    BREAK_START     = ""
+    BREAK_END       = ""
+}
+
 $SecretEnvVariables = @("CLIENT_SECRET")
 
 $script:CurrentStep = 0
@@ -575,6 +581,40 @@ and deployed with the function. Keep this folder private.
     if ($envVars.PSObject.Properties["SCOPES"] -and -not [string]::IsNullOrWhiteSpace("$($envVars.SCOPES)")) {
         Write-Host "  SCOPES: $($envVars.SCOPES) (pre-filled)" -ForegroundColor Cyan
         Write-LogLine "  SCOPES: $($envVars.SCOPES) (pre-filled)"
+    }
+
+    # Prompt for optional env vars (skippable — press Enter to leave blank and configure later)
+    $optBox = @"
+
+-----------------------------------------------------------------
+ OPTIONAL: Break hours & allowed origins
+-----------------------------------------------------------------
+  ALLOWED_ORIGINS : Domain where the widget is embedded
+                    e.g. https://yourclinic.com
+                    (Leave blank to skip — add in Catalyst Console later)
+
+  BREAK_START     : Break start in 24-hr format, e.g. 13:00
+  BREAK_END       : Break end in 24-hr format, e.g. 18:30
+                    (Leave blank to use Zoho shift break_hours)
+-----------------------------------------------------------------
+"@
+    Write-Host $optBox -ForegroundColor Cyan
+    Write-LogLine $optBox
+
+    foreach ($key in $OptionalEnvVariables.Keys) {
+        $existing = "$($envVars.$key)"
+        if ($envVars.PSObject.Properties[$key] -and -not [string]::IsNullOrWhiteSpace($existing)) {
+            Write-Host "  $key : $existing (already set)" -ForegroundColor DarkGray
+            continue
+        }
+        $value = (Read-Host "  $key (Enter to skip)").Trim()
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $envVars | Add-Member -NotePropertyName $key -NotePropertyValue $value -Force
+            Write-LogLine "  $key entered"
+        } else {
+            Write-Host "  $key skipped." -ForegroundColor DarkGray
+            Write-LogLine "  $key skipped"
+        }
     }
 
     Write-JsonFile $cfgPath $cfg

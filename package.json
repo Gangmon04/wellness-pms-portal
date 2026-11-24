@@ -11,8 +11,12 @@
     "dev": "npm run dev --prefix client",
     "build": "npm run build --prefix client",
     "serve": "catalyst serve",
+    "predeploy": "npm run build --prefix client",
     "deploy": "catalyst deploy",
     "deploy:client": "catalyst deploy --only client",
-    "deploy:functions": "catalyst deploy --only functions"
+    "deploy:functions": "catalyst deploy --only functions",
+    "build:zip": "powershell -ExecutionPolicy Bypass -File .\\build.ps1",
+    "zip": "powershell -ExecutionPolicy Bypass -File .\\build.ps1",
+    "package": "powershell -ExecutionPolicy Bypass -File .\\build.ps1"
   }
 }

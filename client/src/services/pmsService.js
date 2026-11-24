@@ -72,7 +72,8 @@ function normalizeDoctor(doc) {
     phone: doc.phone || doc.mobile || '',
     specialization: doc.specialization || doc.designation || doc.role || '',
     medicalDegrees: doc.medicalDegrees || doc.degree || '',
-    currentShift: doc.currentShift || null,
+    department: doc.department || doc.Department || '',
+    currentShift: doc.$current_shift || doc.currentShift || null,
     image: doc.image || doc.photoUrl || null,
     avatar: doc.avatar || doc.image || null,
     zuid: doc.zuid || doc.id || null,
@@ -86,15 +87,16 @@ function normalizeDoctor(doc) {
  */
 function normalizeService(srv) {
   if (!srv) return null;
+  const members = Array.isArray(srv.members) ? srv.members : [];
   return {
     id: String(srv.id),
     name: srv.name || srv.serviceName || 'General Consultation',
     duration: srv.duration ? Number(srv.duration) : 30,
     price: srv.price !== undefined ? Number(srv.price) : 0,
     description: srv.description || '',
-    members: Array.isArray(srv.members) ? srv.members : [],
-    memberIds: Array.isArray(srv.memberIds) ? srv.memberIds : [],
-    doctorCount: Array.isArray(srv.members) ? srv.members.length : (srv.doctorCount || 0)
+    members,
+    memberIds: members.map(m => String(m.id || m)).filter(Boolean),
+    doctorCount: members.length || (srv.doctorCount || 0)
   };
 }
 
@@ -158,9 +160,19 @@ export const getPmsBookedAppointments = async (date, doctorId) => {
   const res = await fetchCatalyst(`/booked-slots?${params.toString()}`);
   if (res.ok && Array.isArray(res.booked)) {
     return res.booked
+      .filter(slot => !['Cancelled', 'No Show', 'Rescheduled'].includes(slot.status))
       .map(slot => {
         if (!slot.startTime) return null;
         try {
+          // If startTime has ISO format like "2026-11-20T11:30:00+05:30", extract the exact time directly:
+          const tMatch = String(slot.startTime).match(/T(\d{1,2}):(\d{2})/);
+          if (tMatch) {
+            let h = parseInt(tMatch[1], 10);
+            const m = tMatch[2];
+            const period = h >= 12 ? 'PM' : 'AM';
+            h = h % 12 || 12;
+            return `${String(h).padStart(2, '0')}:${m} ${period}`;
+          }
           const d = new Date(slot.startTime);
           const hours = d.getHours();
           const mins = d.getMinutes();
@@ -215,12 +227,31 @@ export const getAllPmsData = async () => {
     const departments = rawServices.map(normalizeService).filter(Boolean);
 
     departments.forEach(dept => {
-      if (dept.memberIds && dept.memberIds.length > 0) {
-        dept.doctors = doctors.filter(doc => dept.memberIds.includes(doc.id));
-        dept.doctorCount = dept.doctors.length;
+      const memberNames = (dept.members || []).map(m => (m.name || '').trim().toLowerCase()).filter(Boolean);
+      const matched = doctors.filter(doc => 
+        (dept.memberIds && (dept.memberIds.includes(String(doc.id)) || (doc.zuid && dept.memberIds.includes(String(doc.zuid))))) ||
+        (memberNames.length > 0 && memberNames.includes((doc.name || doc.fullName || '').trim().toLowerCase()))
+      );
+
+      if (matched.length > 0) {
+        dept.doctors = matched;
+        dept.doctorCount = matched.length;
+      } else if (dept.memberIds && dept.memberIds.length > 0) {
+        dept.doctors = [];
+        dept.doctorCount = dept.memberIds.length;
       } else {
-        dept.doctors = doctors;
-        dept.doctorCount = doctors.length;
+        const deptName = (dept.name || '').trim().toLowerCase();
+        const deptMatches = doctors.filter(doc => {
+          const docDept = (doc.department || doc.specialization || '').trim().toLowerCase();
+          return docDept && deptName && (docDept === deptName || deptName.includes(docDept) || docDept.includes(deptName));
+        });
+        if (deptMatches.length > 0) {
+          dept.doctors = deptMatches;
+          dept.doctorCount = deptMatches.length;
+        } else {
+          dept.doctors = doctors;
+          dept.doctorCount = doctors.length;
+        }
       }
     });
 
@@ -231,6 +262,7 @@ export const getAllPmsData = async () => {
       doctors,
       services: departments,
       departments,
+      breakConfig: allRes.breakConfig || null,
       scheduleConfig: {
         businessHours: allRes.businessHours || null,
         holidays: Array.isArray(allRes.holidays) ? allRes.holidays : [],
@@ -261,12 +293,31 @@ export const getAllPmsData = async () => {
 
   // Cross-reference doctors with department assignments
   departments.forEach(dept => {
-    if (dept.memberIds && dept.memberIds.length > 0) {
-      dept.doctors = doctors.filter(doc => dept.memberIds.includes(doc.id));
-      dept.doctorCount = dept.doctors.length;
+    const memberNames = (dept.members || []).map(m => (m.name || '').trim().toLowerCase()).filter(Boolean);
+    const matched = doctors.filter(doc => 
+      (dept.memberIds && (dept.memberIds.includes(String(doc.id)) || (doc.zuid && dept.memberIds.includes(String(doc.zuid))))) ||
+      (memberNames.length > 0 && memberNames.includes((doc.name || doc.fullName || '').trim().toLowerCase()))
+    );
+
+    if (matched.length > 0) {
+      dept.doctors = matched;
+      dept.doctorCount = matched.length;
+    } else if (dept.memberIds && dept.memberIds.length > 0) {
+      dept.doctors = [];
+      dept.doctorCount = dept.memberIds.length;
     } else {
-      dept.doctors = doctors;
-      dept.doctorCount = doctors.length;
+      const deptName = (dept.name || '').trim().toLowerCase();
+      const deptMatches = doctors.filter(doc => {
+        const docDept = (doc.department || doc.specialization || '').trim().toLowerCase();
+        return docDept && deptName && (docDept === deptName || deptName.includes(docDept) || docDept.includes(deptName));
+      });
+      if (deptMatches.length > 0) {
+        dept.doctors = deptMatches;
+        dept.doctorCount = deptMatches.length;
+      } else {
+        dept.doctors = doctors;
+        dept.doctorCount = doctors.length;
+      }
     }
   });
 

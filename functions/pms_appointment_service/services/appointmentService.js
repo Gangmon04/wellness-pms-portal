@@ -24,12 +24,19 @@ const DEFAULT_LOCATION = 'Business Address';
  * Formats raw appointment record for booked slot checking.
  */
 function formatBookedSlot(a) {
+	const ownerObj = a[APPOINTMENT_FIELDS.OWNER] || a.Owner;
+	const practObj = a[APPOINTMENT_FIELDS.PRACTITIONER] || a.Practitioner;
+	const docObj = a[APPOINTMENT_FIELDS.DOCTOR] || a.Doctor;
+	const docId = (ownerObj && typeof ownerObj === 'object' ? ownerObj.id : ownerObj) ||
+	              (practObj && typeof practObj === 'object' ? practObj.id : practObj) ||
+	              (docObj && typeof docObj === 'object' ? docObj.id : docObj) || null;
+
 	return {
 		id: a.id,
 		startTime: a[APPOINTMENT_FIELDS.START_TIME] || a.Appointment_Start_Time,
 		endTime: a[APPOINTMENT_FIELDS.END_TIME] || a.Appointment_End_Time,
 		status: a[APPOINTMENT_FIELDS.STATUS] || a.Status,
-		doctorId: a[APPOINTMENT_FIELDS.OWNER]?.id || a[APPOINTMENT_FIELDS.PRACTITIONER]?.id || a[APPOINTMENT_FIELDS.DOCTOR]?.id || null
+		doctorId: docId ? String(docId) : null
 	};
 }
 
@@ -38,7 +45,13 @@ function formatBookedSlot(a) {
  */
 function matchesDoctor(a, doctorIdParam) {
 	if (!doctorIdParam) return true;
-	const docId = a[APPOINTMENT_FIELDS.OWNER]?.id || a[APPOINTMENT_FIELDS.PRACTITIONER]?.id || a[APPOINTMENT_FIELDS.DOCTOR]?.id;
+	const ownerObj = a[APPOINTMENT_FIELDS.OWNER] || a.Owner;
+	const practObj = a[APPOINTMENT_FIELDS.PRACTITIONER] || a.Practitioner;
+	const docObj = a[APPOINTMENT_FIELDS.DOCTOR] || a.Doctor;
+	const docId = (ownerObj && typeof ownerObj === 'object' ? ownerObj.id : ownerObj) ||
+	              (practObj && typeof practObj === 'object' ? practObj.id : practObj) ||
+	              (docObj && typeof docObj === 'object' ? docObj.id : docObj) || null;
+
 	return !docId || String(docId) === String(doctorIdParam);
 }
 
@@ -49,10 +62,12 @@ async function getBookedSlots(dateParam, doctorIdParam) {
 	let booked = [];
 	let coqlSucceeded = false;
 
-	// Attempt 1: Target COQL query for appointments on this date
+	// Attempt 1: Target COQL query for appointments on this date using >= and <= (BETWEEN is unsupported in COQL)
 	if (dateParam) {
 		try {
-			const coqlQuery = `select ${APPOINTMENT_FIELDS.ID}, ${APPOINTMENT_FIELDS.START_TIME}, ${APPOINTMENT_FIELDS.END_TIME}, ${APPOINTMENT_FIELDS.STATUS}, ${APPOINTMENT_FIELDS.OWNER}, ${APPOINTMENT_FIELDS.SERVICE_NAME} from ${MODULES.APPOINTMENTS} where ${APPOINTMENT_FIELDS.STATUS} != 'Cancelled' and ${APPOINTMENT_FIELDS.START_TIME} between '${dateParam}T00:00:00${TIMEZONE_OFFSET}' and '${dateParam}T23:59:59${TIMEZONE_OFFSET}'`;
+			const startTimeGte = `${dateParam}T00:00:00${TIMEZONE_OFFSET}`;
+			const startTimeLte = `${dateParam}T23:59:59${TIMEZONE_OFFSET}`;
+			const coqlQuery = `select ${APPOINTMENT_FIELDS.ID}, ${APPOINTMENT_FIELDS.START_TIME}, ${APPOINTMENT_FIELDS.END_TIME}, ${APPOINTMENT_FIELDS.STATUS}, ${APPOINTMENT_FIELDS.OWNER}, ${APPOINTMENT_FIELDS.SERVICE_NAME} from ${MODULES.APPOINTMENTS} where (${APPOINTMENT_FIELDS.STATUS} != 'Cancelled' and (${APPOINTMENT_FIELDS.START_TIME} >= '${startTimeGte}' and ${APPOINTMENT_FIELDS.START_TIME} <= '${startTimeLte}'))`;
 			const coqlRes = await zrc.coql(coqlQuery);
 			if (coqlRes.ok && Array.isArray(coqlRes.data?.data)) {
 				booked = coqlRes.data.data
@@ -61,11 +76,27 @@ async function getBookedSlots(dateParam, doctorIdParam) {
 				coqlSucceeded = true;
 			}
 		} catch (cErr) {
-			console.warn('Booked slots COQL failed, using ZRC fallback');
+			console.warn('Booked slots COQL failed, trying COQL LIKE fallback:', cErr?.message || cErr);
 		}
 	}
 
-	// Attempt 2: Only fallback if COQL query actually failed (NOT when a day legitimately has 0 bookings)
+	// Attempt 2: COQL with prefix LIKE
+	if (!coqlSucceeded && dateParam) {
+		try {
+			const coqlQueryLike = `select ${APPOINTMENT_FIELDS.ID}, ${APPOINTMENT_FIELDS.START_TIME}, ${APPOINTMENT_FIELDS.END_TIME}, ${APPOINTMENT_FIELDS.STATUS}, ${APPOINTMENT_FIELDS.OWNER}, ${APPOINTMENT_FIELDS.SERVICE_NAME} from ${MODULES.APPOINTMENTS} where (${APPOINTMENT_FIELDS.STATUS} != 'Cancelled' and ${APPOINTMENT_FIELDS.START_TIME} like '${dateParam}%')`;
+			const coqlRes = await zrc.coql(coqlQueryLike);
+			if (coqlRes.ok && Array.isArray(coqlRes.data?.data)) {
+				booked = coqlRes.data.data
+					.filter(a => matchesDoctor(a, doctorIdParam))
+					.map(formatBookedSlot);
+				coqlSucceeded = true;
+			}
+		} catch (cErr2) {
+			console.warn('Booked slots COQL LIKE failed, trying ZRC search fallback:', cErr2?.message || cErr2);
+		}
+	}
+
+	// Attempt 3: ZRC criteria fallback
 	if (!coqlSucceeded) {
 		try {
 			const searchParams = {
@@ -73,7 +104,7 @@ async function getBookedSlots(dateParam, doctorIdParam) {
 				per_page: 200
 			};
 			if (dateParam) {
-				searchParams.criteria = `(${APPOINTMENT_FIELDS.START_TIME}:starts_with:${dateParam})`;
+				searchParams.criteria = `((${APPOINTMENT_FIELDS.START_TIME}:between:${dateParam}T00:00:00${TIMEZONE_OFFSET},${dateParam}T23:59:59${TIMEZONE_OFFSET}))`;
 			}
 
 			const aRes = await zrc.get(`/crm/v8/${MODULES.APPOINTMENTS}`, { params: searchParams });
@@ -82,7 +113,7 @@ async function getBookedSlots(dateParam, doctorIdParam) {
 				.filter(a => (!dateParam || (a[APPOINTMENT_FIELDS.START_TIME] && a[APPOINTMENT_FIELDS.START_TIME].startsWith(dateParam))) && matchesDoctor(a, doctorIdParam))
 				.map(formatBookedSlot);
 		} catch (fallbackErr) {
-			console.warn('Booked slots fallback search failed');
+			console.warn('Booked slots fallback search failed:', fallbackErr?.message || fallbackErr);
 		}
 	}
 

@@ -140,7 +140,7 @@ async function getDoctors(doctorZuidCache = defaultDoctorZuidCache) {
 	const pmsRes = await zrc.get(`/crm/v8/${MODULES.USERS}`, {
 		params: {
 			type: USER_TYPES.ACTIVE,
-			fields: 'id,full_name,first_name,last_name,email,Current_Shift__s,Department,Medical_Degrees,Specialization,image_link,Availability_Status,Availability_Start,Availability_End,Session_Slots,zuid,profile,role'
+			fields: 'id,full_name,first_name,last_name,email,$current_shift,Current_Shift__s,Department,Medical_Degrees,Specialization,image_link,Availability_Status,Availability_Start,Availability_End,Session_Slots,zuid,profile,role'
 		}
 	});
 
@@ -171,12 +171,22 @@ async function getDoctors(doctorZuidCache = defaultDoctorZuidCache) {
 				medicalDegrees: medicalDegrees || '',
 				department: u.Department || '',
 				specialization: u.Specialization || '',
-				currentShift: u.Current_Shift__s || u.current_shift || u.shift || null,
+				currentShift: u.$current_shift || u.Current_Shift__s || u.current_shift || u.shift || null,
 				zuid,
 				image
 			};
 		});
 }
+
+// Cache for services with members (avoids repeated round-trips and timeouts)
+let servicesCache = null;
+let servicesCacheExpiry = 0;
+const SERVICES_CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+// Cache for schedule configuration (avoids repeated round-trips and timeouts)
+let scheduleConfigCache = null;
+let scheduleConfigCacheExpiry = 0;
+const SCHEDULE_CONFIG_CACHE_TTL_MS = 60 * 1000; // 60 seconds
 
 /**
  * Extracts and normalizes service member practitioner references.
@@ -184,8 +194,30 @@ async function getDoctors(doctorZuidCache = defaultDoctorZuidCache) {
 function extractServiceMembers(rawMembers) {
 	if (!Array.isArray(rawMembers)) return [];
 	return rawMembers
-		.map(m => ({ id: m.Members?.id || m.id, name: m.Members?.name || '' }))
-		.filter(m => m.id);
+		.map(m => {
+			if (!m) return null;
+			// 1. If m.Members is an object: { id, name }
+			if (m.Members && typeof m.Members === 'object') {
+				return { id: String(m.Members.id || ''), name: m.Members.name || '' };
+			}
+			// 2. If m is an object with Practitioner, Doctor, or User lookup
+			if (m.Practitioner && typeof m.Practitioner === 'object') {
+				return { id: String(m.Practitioner.id || ''), name: m.Practitioner.name || '' };
+			}
+			if (m.Doctor && typeof m.Doctor === 'object') {
+				return { id: String(m.Doctor.id || ''), name: m.Doctor.name || '' };
+			}
+			if (m.User && typeof m.User === 'object') {
+				return { id: String(m.User.id || ''), name: m.User.name || '' };
+			}
+			// 3. If m.Members is directly a user ID string or number
+			if (m.Members && (typeof m.Members === 'string' || typeof m.Members === 'number')) {
+				return { id: String(m.Members), name: m.name || '' };
+			}
+			// 4. If m itself is { id, name }
+			return { id: String(m.id || ''), name: m.name || '' };
+		})
+		.filter(m => m && m.id);
 }
 
 /**
@@ -209,6 +241,11 @@ function formatServiceItem(s, members = []) {
  * Fetches services from Services__s in PMS via ZRC COQL with ZRC GET fallback.
  */
 async function getServices() {
+	const now = Date.now();
+	if (servicesCache && now < servicesCacheExpiry) {
+		return servicesCache;
+	}
+
 	let services = [];
 
 	// Attempt 1: Fast single-query COQL for Services__s with Members
@@ -243,6 +280,30 @@ async function getServices() {
 		});
 	}
 
+	// Zoho CRM v8: list endpoints and COQL do NOT return subform (Members) data.
+	// Individual GET /Services__s/{id} is the only reliable way to get assigned practitioner members.
+	if (services.length > 0) {
+		const detailed = await Promise.all(services.map(async (svc) => {
+			try {
+				const dRes = await zrc.get(`/crm/v8/${MODULES.SERVICES}/${svc.id}`);
+				const sData = dRes.data?.data?.[0];
+				if (sData) {
+					const members = extractServiceMembers(sData[SERVICE_FIELDS.MEMBERS] || sData.Members || []);
+					return { ...svc, members, doctorCount: members.length };
+				}
+			} catch (e) {
+				console.warn(`Could not fetch members for service ${svc.id}`);
+			}
+			return svc;
+		}));
+		services = detailed;
+	}
+
+	if (services.length > 0) {
+		servicesCache = services;
+		servicesCacheExpiry = Date.now() + SERVICES_CACHE_TTL_MS;
+	}
+
 	return services;
 }
 
@@ -250,6 +311,11 @@ async function getServices() {
  * Fetches live schedule configuration from Zoho PMS CRM (Business Hours, Holidays, Unavailability, Shift Hours).
  */
 async function getScheduleConfig() {
+	const now = Date.now();
+	if (scheduleConfigCache && now < scheduleConfigCacheExpiry) {
+		return scheduleConfigCache;
+	}
+
 	const [bhRes, holRes, unavailRes, shiftRes] = await Promise.allSettled([
 		zrc.get('/crm/v8/settings/business_hours'),
 		zrc.get('/crm/v8/settings/holidays'),
@@ -260,7 +326,8 @@ async function getScheduleConfig() {
 	let businessHours = null;
 	if (bhRes.status === 'fulfilled' && bhRes.value.ok) {
 		const bhData = bhRes.value.data;
-		businessHours = bhData?.business_hours || (Array.isArray(bhData?.data) ? bhData.data[0] : null) || null;
+		const rawBh = bhData?.business_hours || (Array.isArray(bhData?.data) ? bhData.data[0] : null) || bhData;
+		businessHours = Array.isArray(rawBh) ? rawBh[0] : rawBh;
 	}
 
 	let holidays = [];
@@ -278,15 +345,35 @@ async function getScheduleConfig() {
 	let shiftHours = [];
 	if (shiftRes.status === 'fulfilled' && shiftRes.value.ok) {
 		const sData = shiftRes.value.data;
-		shiftHours = sData?.shift_hours || (Array.isArray(sData?.data) ? sData.data : []) || [];
+		const rawShifts = sData?.shift_hours || (Array.isArray(sData?.data) ? sData.data : []) || [];
+
+		// Zoho's shift list endpoint often omits the users array.
+		// Fetch each shift's detail individually — that endpoint reliably includes assigned users.
+		shiftHours = await Promise.all(rawShifts.map(async (shift) => {
+			try {
+				const dRes = await zrc.get(`/crm/v8/settings/business_hours/shift_hours/${shift.id}`);
+				const detail = dRes.data?.shift_hours?.[0] || dRes.data?.data?.[0] || dRes.data;
+				if (detail && Array.isArray(detail.users) && detail.users.length > 0) {
+					return { ...shift, ...detail };
+				}
+			} catch (e) {
+				console.warn(`Could not fetch detail for shift ${shift.id}`);
+			}
+			return shift;
+		}));
 	}
 
-	return {
+	const result = {
 		businessHours,
 		holidays,
 		unavailabilities,
 		shiftHours
 	};
+
+	scheduleConfigCache = result;
+	scheduleConfigCacheExpiry = Date.now() + SCHEDULE_CONFIG_CACHE_TTL_MS;
+
+	return result;
 }
 
 const PRIORITIES = Object.freeze(['Routine', 'Urgent', 'ASAP', 'STAT']);

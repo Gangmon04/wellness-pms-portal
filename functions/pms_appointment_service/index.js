@@ -50,6 +50,37 @@ module.exports = async (req, res) => {
 				getServicesList().catch(() => []),
 				getScheduleConfiguration().catch(() => ({ businessHours: null, holidays: [], unavailabilities: [], shiftHours: [] }))
 			]);
+
+			// Zoho's shift hours API may not always include full user mappings in all CRM profiles.
+			// Cross-reference doctors' currentShift assignment and merge with any existing users list
+			// so the frontend can reliably match a doctor to their shift.
+			const enrichedShiftHours = Array.isArray(scheduleConfig.shiftHours)
+				? scheduleConfig.shiftHours.map(shift => {
+					const shiftId = String(shift.id || '');
+					const shiftName = (shift.name || '').trim().toLowerCase();
+					const existingUsers = Array.isArray(shift.users) ? [...shift.users] : [];
+					const derivedUsers = (Array.isArray(doctors) ? doctors : [])
+						.filter(d => {
+							const cs = d.$current_shift || d.currentShift;
+							if (!cs) return false;
+							const csId = cs?.id ? String(cs.id) : null;
+							const csName = typeof cs === 'string'
+								? cs.trim().toLowerCase()
+								: (cs?.name || '').trim().toLowerCase();
+							return (csId && shiftId && csId === shiftId) ||
+								   (csName && shiftName && csName === shiftName);
+						})
+						.map(d => ({ id: String(d.id), zuid: d.zuid ? String(d.zuid) : undefined, email: d.email || '' }));
+
+					for (const du of derivedUsers) {
+						if (!existingUsers.some(eu => String(eu.id || eu) === du.id || (du.zuid && String(eu.zuid || eu) === du.zuid))) {
+							existingUsers.push(du);
+						}
+					}
+					return { ...shift, users: existingUsers };
+				})
+				: [];
+
 			return sendJson(res, 200, {
 				ok: true,
 				hospital,
@@ -57,7 +88,12 @@ module.exports = async (req, res) => {
 				departments: services,
 				services,
 				...scheduleConfig,
-				priorities: getPriorities()
+				shiftHours: enrichedShiftHours,
+				priorities: getPriorities(),
+				breakConfig: {
+					start: process.env.BREAK_START || null,
+					end: process.env.BREAK_END || null
+				}
 			}, req);
 		}
 
@@ -83,6 +119,7 @@ module.exports = async (req, res) => {
 			const zuid = parsedUrl.searchParams.get('zuid');
 			return streamDoctorImage(res, id, zuid, req);
 		}
+
 
 		// GET /doctors (Active practitioners)
 		if (req.method === 'GET' && pathname.endsWith('/doctors')) {
